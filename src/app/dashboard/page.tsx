@@ -2,8 +2,9 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import {
   GitFork, Scale, Heart, ShieldPlus,
-  Wallet, Package, TrendingUp, AlertTriangle,
+  Wallet, Package, TrendingUp,
 } from 'lucide-react'
+import { FazendaManager } from './fazenda-manager'
 
 async function getKPIs(fazendaIds: string[]) {
   const supabase = await createClient()
@@ -91,17 +92,6 @@ export default async function DashboardPage() {
         </p>
       </div>
 
-      {fazendas?.length === 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-start gap-3">
-          <AlertTriangle className="text-amber-600 mt-0.5 shrink-0" size={18} />
-          <div>
-            <p className="font-semibold text-amber-800 text-sm">Nenhuma fazenda cadastrada</p>
-            <p className="text-amber-700 text-xs mt-0.5">
-              Para começar, acesse o Supabase e insira sua fazenda na tabela <code>fazendas</code>.
-            </p>
-          </div>
-        </div>
-      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {cards.map((c) => (
@@ -115,18 +105,7 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      {fazendas && fazendas.length > 0 && (
-        <div className="mt-6 bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
-          <p className="text-sm font-semibold text-gray-700 mb-3">Fazendas</p>
-          <div className="flex flex-wrap gap-2">
-            {fazendas.map((f: any) => (
-              <span key={f.id} className="text-xs bg-green-50 text-green-700 border border-green-200 rounded-full px-3 py-1 font-medium">
-                {f.nome}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+      <FazendaManager fazendas={fazendas ?? []} />
     </div>
   )
 }
