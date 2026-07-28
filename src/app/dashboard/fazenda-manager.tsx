@@ -24,7 +24,12 @@ export function FazendaManager({ fazendas }: { fazendas: Fazenda[] }) {
     if (!form.nome.trim()) return
     setSaving(true)
     setErro('')
-    const { error } = await supabase.from('fazendas').insert({ nome: form.nome.trim() })
+    const { data: { user } } = await supabase.auth.getUser()
+    const proprietario = user?.user_metadata?.nome ?? user?.user_metadata?.name ?? user?.email ?? 'Proprietário'
+    const { error } = await supabase.from('fazendas').insert({
+      nome: form.nome.trim(),
+      proprietario,
+    })
     if (error) {
       setErro(`Erro: ${error.message}`)
       setSaving(false)
