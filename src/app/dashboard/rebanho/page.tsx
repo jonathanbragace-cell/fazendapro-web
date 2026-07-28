@@ -101,17 +101,29 @@ export default function RebanhoPage() {
     return `${y}-${m?.padStart(2,'0')}-${d?.padStart(2,'0')}`
   }
 
+  async function gerarBrinco(): Promise<string> {
+    const { count } = await supabase.from('animais').select('*', { count: 'exact', head: true })
+    const num = String((count ?? 0) + 1).padStart(4, '0')
+    return `S/N-${num}`
+  }
+
   async function handleSave() {
-    if (!form.brinco.trim()) { alert('Preencha o brinco do animal.'); return }
-    if (!form.data_nascimento) { alert('Preencha a data de nascimento.'); return }
     setSaving(true)
+    const fid = form.fazenda_id || fazendas[0]?.id
+    const brinco = form.brinco.trim()
+      ? form.brinco.trim().toUpperCase()
+      : await gerarBrinco()
+    const dataNasc = form.data_nascimento
+      ? (form.data_nascimento.includes('/') ? toISO(form.data_nascimento) : form.data_nascimento)
+      : new Date().toISOString().split('T')[0]
+
     const payload: any = {
-      brinco: form.brinco.trim().toUpperCase(),
+      brinco,
       nome: form.nome.trim() || null,
-      data_nascimento: form.data_nascimento.includes('/') ? toISO(form.data_nascimento) : form.data_nascimento,
+      data_nascimento: dataNasc,
       sexo: form.sexo, raca: form.raca, categoria: form.categoria,
       origem: form.origem, observacao: form.observacao.trim() || null,
-      lote_id: form.lote_id || null, fazenda_id: form.fazenda_id || fazendas[0]?.id,
+      lote_id: form.lote_id || null, fazenda_id: fid,
       status: 'ativo',
     }
     let error
@@ -223,8 +235,8 @@ export default function RebanhoPage() {
             )}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Brinco *</label>
-                <Input placeholder="Ex: 001-A" value={form.brinco} onChange={e => f('brinco', e.target.value.toUpperCase())} />
+                <label className="text-sm font-medium text-gray-700 block mb-1">Brinco <span className="text-gray-400 font-normal">(opcional)</span></label>
+                <Input placeholder="Gerado automaticamente" value={form.brinco} onChange={e => f('brinco', e.target.value.toUpperCase())} />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Nome/Apelido</label>
@@ -232,7 +244,7 @@ export default function RebanhoPage() {
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1">Nascimento *</label>
+              <label className="text-sm font-medium text-gray-700 block mb-1">Nascimento <span className="text-gray-400 font-normal">(opcional)</span></label>
               <Input placeholder="DD/MM/AAAA" value={form.data_nascimento.includes('-') ? fmtDate(form.data_nascimento) : form.data_nascimento}
                 onChange={e => {
                   const v = e.target.value.replace(/\D/g, '')
