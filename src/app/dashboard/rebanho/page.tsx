@@ -102,7 +102,8 @@ export default function RebanhoPage() {
   }
 
   async function handleSave() {
-    if (!form.brinco.trim() || !form.data_nascimento) return
+    if (!form.brinco.trim()) { alert('Preencha o brinco do animal.'); return }
+    if (!form.data_nascimento) { alert('Preencha a data de nascimento.'); return }
     setSaving(true)
     const payload: any = {
       brinco: form.brinco.trim().toUpperCase(),
@@ -113,10 +114,16 @@ export default function RebanhoPage() {
       lote_id: form.lote_id || null, fazenda_id: form.fazenda_id || fazendas[0]?.id,
       status: 'ativo',
     }
+    let error
     if (editing) {
-      await supabase.from('animais').update(payload).eq('id', editing.id)
+      ({ error } = await supabase.from('animais').update(payload).eq('id', editing.id))
     } else {
-      await supabase.from('animais').insert(payload)
+      ({ error } = await supabase.from('animais').insert(payload))
+    }
+    if (error) {
+      alert(`Erro ao salvar: ${error.message}\nCódigo: ${error.code}\nDetalhe: ${error.details ?? '—'}`)
+      setSaving(false)
+      return
     }
     setSaving(false)
     setOpen(false)
