@@ -5,21 +5,22 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, GitFork, Scale, Heart, ShieldPlus,
-  Wallet, Package, BarChart3, LogOut, Menu, X, Leaf,
+  Wallet, Package, BarChart3, LogOut, Menu, X, Leaf, Users,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 
-const NAV_ITEMS = [
-  { href: '/dashboard',              label: 'Início',      icon: LayoutDashboard },
-  { href: '/dashboard/rebanho',      label: 'Rebanho',     icon: GitFork },
-  { href: '/dashboard/pesagem',      label: 'Pesagem',     icon: Scale },
-  { href: '/dashboard/reproducao',   label: 'Reprodução',  icon: Heart },
-  { href: '/dashboard/sanitario',    label: 'Sanitário',   icon: ShieldPlus },
-  { href: '/dashboard/rocas',         label: 'Roças',       icon: Leaf },
-  { href: '/dashboard/financeiro',   label: 'Financeiro',  icon: Wallet },
-  { href: '/dashboard/estoque',      label: 'Estoque',     icon: Package },
-  { href: '/dashboard/relatorios',   label: 'Relatórios',  icon: BarChart3 },
+const ALL_NAV = [
+  { href: '/dashboard',             label: 'Início',      icon: LayoutDashboard, cargos: ['admin','gerente','vaqueiro'] },
+  { href: '/dashboard/rebanho',     label: 'Rebanho',     icon: GitFork,          cargos: ['admin','gerente','vaqueiro'] },
+  { href: '/dashboard/pesagem',     label: 'Pesagem',     icon: Scale,            cargos: ['admin','gerente','vaqueiro'] },
+  { href: '/dashboard/reproducao',  label: 'Reprodução',  icon: Heart,            cargos: ['admin','gerente'] },
+  { href: '/dashboard/sanitario',   label: 'Sanitário',   icon: ShieldPlus,       cargos: ['admin','gerente','vaqueiro'] },
+  { href: '/dashboard/rocas',       label: 'Roças',       icon: Leaf,             cargos: ['admin','gerente','vaqueiro'] },
+  { href: '/dashboard/financeiro',  label: 'Financeiro',  icon: Wallet,           cargos: ['admin','gerente'] },
+  { href: '/dashboard/estoque',     label: 'Estoque',     icon: Package,          cargos: ['admin','gerente'] },
+  { href: '/dashboard/relatorios',  label: 'Relatórios',  icon: BarChart3,        cargos: ['admin','gerente'] },
+  { href: '/dashboard/usuarios',    label: 'Usuários',    icon: Users,            cargos: ['admin'] },
 ]
 
 export function Sidebar() {
@@ -27,6 +28,19 @@ export function Sidebar() {
   const router = useRouter()
   const supabase = createClient()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [cargo, setCargo] = useState<string>('admin')
+
+  useEffect(() => {
+    async function fetchCargo() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase.from('profiles').select('cargo').eq('id', user.id).single()
+      if (data?.cargo) setCargo(data.cargo)
+    }
+    fetchCargo()
+  }, [])
+
+  const navItems = ALL_NAV.filter(item => item.cargos.includes(cargo))
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -49,7 +63,7 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
           return (
             <Link
