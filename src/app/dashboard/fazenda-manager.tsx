@@ -112,11 +112,11 @@ export function FazendaManager({ fazendas }: { fazendas: Fazenda[] }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Município</label>
-                <Input placeholder="Ex: Uberaba" value={form.municipio} onChange={e => setF('municipio', e.target.value)} />
+                <Input name="city" autoComplete="address-level2" placeholder="Ex: Uberaba" value={form.municipio} onChange={e => setF('municipio', e.target.value)} />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Estado</label>
-                <Input placeholder="Ex: MG" value={form.estado} onChange={e => setF('estado', e.target.value)} maxLength={2} />
+                <Input name="state" autoComplete="address-level1" placeholder="Ex: MG" value={form.estado} onChange={e => setF('estado', e.target.value)} maxLength={2} />
               </div>
             </div>
             {erro && <p className="text-red-500 text-xs">{erro}</p>}
