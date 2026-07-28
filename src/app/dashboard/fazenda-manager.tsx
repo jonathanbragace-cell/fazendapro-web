@@ -29,6 +29,7 @@ export function FazendaManager({ fazendas }: { fazendas: Fazenda[] }) {
     const { error } = await supabase.from('fazendas').insert({
       nome: form.nome.trim(),
       proprietario,
+      municipio: form.cidade.trim() || 'Não informado',
     })
     if (error) {
       alert(`Erro ao salvar: ${error.message}\nCódigo: ${error.code}\nDetalhes: ${error.details}`)
