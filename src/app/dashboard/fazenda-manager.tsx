@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Plus, MapPin, Trash2 } from 'lucide-react'
 
-type Fazenda = { id: string; nome: string; area_ha?: number; cidade?: string; estado?: string }
+type Fazenda = { id: string; nome: string; area_total_ha?: number; municipio?: string; estado?: string }
 
 export function FazendaManager({ fazendas }: { fazendas: Fazenda[] }) {
   const supabase = createClient()
@@ -16,7 +16,7 @@ export function FazendaManager({ fazendas }: { fazendas: Fazenda[] }) {
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [erro, setErro] = useState('')
-  const [form, setForm] = useState({ nome: '', area_ha: '', cidade: '', estado: '' })
+  const [form, setForm] = useState({ nome: '', area_total_ha: '', municipio: '', estado: '' })
 
   function setF(k: string, v: string) { setForm(prev => ({ ...prev, [k]: v })) }
 
@@ -29,7 +29,9 @@ export function FazendaManager({ fazendas }: { fazendas: Fazenda[] }) {
     const { error } = await supabase.from('fazendas').insert({
       nome: form.nome.trim(),
       proprietario,
-      municipio: form.cidade.trim() || 'Não informado',
+      municipio: form.municipio.trim() || 'Não informado',
+      estado: form.estado.trim() || 'N/A',
+      area_total_ha: parseFloat(form.area_total_ha.replace(',', '.')) || 0,
     })
     if (error) {
       alert(`Erro ao salvar: ${error.message}\nCódigo: ${error.code}\nDetalhes: ${error.details}`)
@@ -38,7 +40,7 @@ export function FazendaManager({ fazendas }: { fazendas: Fazenda[] }) {
     }
     setSaving(false)
     setOpen(false)
-    setForm({ nome: '', area_ha: '', cidade: '', estado: '' })
+    setForm({ nome: '', area_total_ha: '', municipio: '', estado: '' })
     router.refresh()
   }
 
@@ -78,10 +80,10 @@ export function FazendaManager({ fazendas }: { fazendas: Fazenda[] }) {
                   <div>
                     <p className="font-semibold text-gray-900 text-sm">{f.nome}</p>
                     <p className="text-xs text-gray-500 flex items-center gap-1">
-                      {f.cidade && f.estado ? <><MapPin size={10} />{f.cidade} — {f.estado}</> :
-                       f.cidade ? <><MapPin size={10} />{f.cidade}</> :
-                       f.area_ha ? `${f.area_ha} ha` : 'Sem detalhes'}
-                      {f.area_ha && (f.cidade || f.estado) ? ` · ${f.area_ha} ha` : ''}
+                      {f.municipio && f.estado ? <><MapPin size={10} />{f.municipio} — {f.estado}</> :
+                       f.municipio ? <><MapPin size={10} />{f.municipio}</> :
+                       f.area_total_ha ? `${f.area_total_ha} ha` : 'Sem detalhes'}
+                      {f.area_total_ha && (f.municipio || f.estado) ? ` · ${f.area_total_ha} ha` : ''}
                     </p>
                   </div>
                 </div>
@@ -105,12 +107,12 @@ export function FazendaManager({ fazendas }: { fazendas: Fazenda[] }) {
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Área (hectares)</label>
-              <Input placeholder="Ex: 500" value={form.area_ha} onChange={e => setF('area_ha', e.target.value)} inputMode="decimal" />
+              <Input placeholder="Ex: 500" value={form.area_total_ha} onChange={e => setF('area_total_ha', e.target.value)} inputMode="decimal" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Cidade</label>
-                <Input placeholder="Ex: Uberaba" value={form.cidade} onChange={e => setF('cidade', e.target.value)} />
+                <label className="text-sm font-medium text-gray-700 block mb-1">Município</label>
+                <Input placeholder="Ex: Uberaba" value={form.municipio} onChange={e => setF('municipio', e.target.value)} />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Estado</label>

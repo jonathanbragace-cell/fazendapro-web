@@ -66,7 +66,7 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: fazendas } = await supabase.from('fazendas').select('id, nome').order('nome')
+  const { data: fazendas } = await supabase.from('fazendas').select('id, nome, municipio, estado, area_total_ha').order('nome')
   const ids = (fazendas ?? []).map((f: any) => f.id)
   const kpis = await getKPIs(ids)
 
