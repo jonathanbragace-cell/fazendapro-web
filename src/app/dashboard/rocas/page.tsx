@@ -51,6 +51,7 @@ export default function RocasPage() {
   const [fazendaId, setFazendaId] = useState('')
   const [loading, setLoading] = useState(true)
   const [expandido, setExpandido] = useState<string | null>(null)
+  const [cabecasPorFazenda, setCabecasPorFazenda] = useState<Record<string, number>>({})
 
   // Modal nova/editar roça
   const [openRoca, setOpenRoca] = useState(false)
@@ -82,6 +83,15 @@ export default function RocasPage() {
     setFazendas(faz ?? [])
     const id = fid ?? fazendaId ?? faz?.[0]?.id ?? ''
     if (!fazendaId && faz?.[0]) setFazendaId(faz[0].id)
+
+    // Total de cabeças ativas por fazenda (para todos os botões)
+    const { data: ativos } = await supabase.from('pastejo').select('fazenda_id, num_cabecas').is('data_saida', null)
+    const totais: Record<string, number> = {}
+    ;(ativos ?? []).forEach((p: any) => {
+      totais[p.fazenda_id] = (totais[p.fazenda_id] ?? 0) + p.num_cabecas
+    })
+    setCabecasPorFazenda(totais)
+
     if (!id) { setRocas([]); setLoading(false); return }
 
     const { data: rs } = await supabase.from('rocas').select('*').eq('fazenda_id', id).order('nome')
@@ -194,12 +204,21 @@ export default function RocasPage() {
       {/* Seletor de fazenda */}
       {fazendas.length > 1 && (
         <div className="mb-5 flex gap-2 flex-wrap">
-          {fazendas.map(f => (
-            <button key={f.id} onClick={() => setFazendaId(f.id)}
-              className={`px-4 py-2 rounded-full text-sm font-medium border transition-colors ${fazendaId === f.id ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-600 border-gray-200 hover:border-green-300'}`}>
-              {f.nome}
-            </button>
-          ))}
+          {fazendas.map(f => {
+            const total = cabecasPorFazenda[f.id] ?? 0
+            const ativo = fazendaId === f.id
+            return (
+              <button key={f.id} onClick={() => setFazendaId(f.id)}
+                className={`px-4 py-2 rounded-full text-sm font-medium border transition-colors flex items-center gap-2 ${ativo ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-600 border-gray-200 hover:border-green-300'}`}>
+                <span>{f.nome}</span>
+                {total > 0 && (
+                  <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${ativo ? 'bg-green-500 text-white' : 'bg-green-100 text-green-700'}`}>
+                    {total}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
       )}
 
