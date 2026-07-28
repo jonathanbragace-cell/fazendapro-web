@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Plus, MapPin, Trash2, LogIn, LogOut, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, MapPin, Trash2, LogIn, LogOut, ChevronDown, ChevronUp, Pencil } from 'lucide-react'
 
 type Fazenda = { id: string; nome: string }
 type Pastejo = {
@@ -48,8 +48,9 @@ export default function RocasPage() {
   const [loading, setLoading] = useState(true)
   const [expandido, setExpandido] = useState<string | null>(null)
 
-  // Modal nova roça
+  // Modal nova/editar roça
   const [openRoca, setOpenRoca] = useState(false)
+  const [editandoRoca, setEditandoRoca] = useState<Roca | null>(null)
   const [formRoca, setFormRoca] = useState({ nome: '', area_ha: '' })
   const [savingRoca, setSavingRoca] = useState(false)
 
@@ -85,16 +86,33 @@ export default function RocasPage() {
   useEffect(() => { load() }, [])
   useEffect(() => { if (fazendaId) load(fazendaId) }, [fazendaId])
 
+  function abrirNovaRoca() {
+    setEditandoRoca(null)
+    setFormRoca({ nome: '', area_ha: '' })
+    setOpenRoca(true)
+  }
+
+  function abrirEditarRoca(r: Roca) {
+    setEditandoRoca(r)
+    setFormRoca({ nome: r.nome, area_ha: r.area_ha ? String(r.area_ha) : '' })
+    setOpenRoca(true)
+  }
+
   async function salvarRoca() {
     if (!formRoca.nome.trim() || !fazendaId) return
     setSavingRoca(true)
-    await supabase.from('rocas').insert({
-      fazenda_id: fazendaId,
+    const payload = {
       nome: formRoca.nome.trim(),
       area_ha: formRoca.area_ha ? parseFloat(formRoca.area_ha.replace(',', '.')) : null,
-    })
+    }
+    if (editandoRoca) {
+      await supabase.from('rocas').update(payload).eq('id', editandoRoca.id)
+    } else {
+      await supabase.from('rocas').insert({ fazenda_id: fazendaId, ...payload })
+    }
     setSavingRoca(false)
     setOpenRoca(false)
+    setEditandoRoca(null)
     setFormRoca({ nome: '', area_ha: '' })
     load(fazendaId)
   }
@@ -161,6 +179,7 @@ export default function RocasPage() {
       </div>
 
       {/* Seletor de fazenda */}
+
       {fazendas.length > 1 && (
         <div className="mb-5">
           <div className="flex gap-2 flex-wrap">
@@ -179,7 +198,7 @@ export default function RocasPage() {
       ) : rocas.length === 0 ? (
         <div className="text-center py-16">
           <p className="text-gray-400 text-sm mb-3">Nenhuma roça cadastrada ainda.</p>
-          <Button onClick={() => setOpenRoca(true)} className="bg-green-700 hover:bg-green-800 text-white gap-2">
+          <Button onClick={abrirNovaRoca} className="bg-green-700 hover:bg-green-800 text-white gap-2">
             <Plus size={16} /> Cadastrar primeira roça
           </Button>
         </div>
@@ -227,6 +246,10 @@ export default function RocasPage() {
                     <button onClick={() => setExpandido(aberto ? null : r.id)}
                       className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors">
                       {aberto ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    </button>
+                    <button onClick={() => abrirEditarRoca(r)}
+                      className="p-1.5 text-gray-300 hover:text-blue-500 transition-colors">
+                      <Pencil size={15} />
                     </button>
                     <button onClick={() => excluirRoca(r.id, r.nome)}
                       className="p-1.5 text-gray-300 hover:text-red-500 transition-colors">
@@ -294,7 +317,7 @@ export default function RocasPage() {
       {/* Modal nova roça */}
       <Dialog open={openRoca} onOpenChange={setOpenRoca}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Nova roça</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editandoRoca ? 'Editar roça' : 'Nova roça'}</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-2">
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Nome da roça *</label>
@@ -307,7 +330,7 @@ export default function RocasPage() {
             <div className="flex gap-3 pt-2">
               <Button variant="outline" className="flex-1" onClick={() => setOpenRoca(false)}>Cancelar</Button>
               <Button className="flex-1 bg-green-700 hover:bg-green-800 text-white" onClick={salvarRoca} disabled={savingRoca}>
-                {savingRoca ? 'Salvando...' : 'Salvar'}
+                {savingRoca ? 'Salvando...' : editandoRoca ? 'Salvar alterações' : 'Salvar'}
               </Button>
             </div>
           </div>
