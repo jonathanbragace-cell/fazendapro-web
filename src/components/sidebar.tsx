@@ -39,7 +39,7 @@ export function Sidebar() {
       {/* Logo */}
       <div className="px-4 py-5 border-b border-green-800">
         <div className="flex items-center gap-2">
-          <span className="text-2xl">🐄</span>
+          <img src="/touro.png" alt="Touro Nelore" className="w-10 h-10 rounded-lg object-cover object-center shrink-0" />
           <div>
             <p className="font-bold text-white text-sm">FazendaPro</p>
             <p className="text-green-300 text-xs">Gestão Pecuária</p>
