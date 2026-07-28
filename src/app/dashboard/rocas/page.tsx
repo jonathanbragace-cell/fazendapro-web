@@ -74,6 +74,8 @@ export default function RocasPage() {
   // Modal transferência
   const [openTransf, setOpenTransf] = useState(false)
   const [transfOrigem, setTransfOrigem] = useState<Roca | null>(null)
+  const [transfDestFazendaId, setTransfDestFazendaId] = useState('')
+  const [transfDestRocas, setTransfDestRocas] = useState<{ id: string; nome: string }[]>([])
   const [formTransf, setFormTransf] = useState({ data: hoje(), num_cabecas: '', destino_id: '', observacao: '' })
   const [savingTransf, setSavingTransf] = useState(false)
 
@@ -161,12 +163,30 @@ export default function RocasPage() {
   }
 
   // ── Transferência ──────────────────────────────────────
+  async function carregarRocasDestino(fid: string, origemId: string) {
+    const { data } = await supabase.from('rocas').select('id, nome').eq('fazenda_id', fid).order('nome')
+    const lista = (data ?? []).filter(r => r.id !== origemId)
+    setTransfDestRocas(lista)
+    setFormTransf(p => ({ ...p, destino_id: lista[0]?.id ?? '' }))
+  }
+
   function abrirTransferencia(r: Roca) {
-    const outraRoca = rocas.find(x => x.id !== r.id)
+    const destFaz = fazendaId
     setTransfOrigem(r)
-    setFormTransf({ data: hoje(), num_cabecas: String(cabecasAtuais(r.pastejo)), destino_id: outraRoca?.id ?? '', observacao: '' })
+    setTransfDestFazendaId(destFaz)
+    setFormTransf({ data: hoje(), num_cabecas: String(cabecasAtuais(r.pastejo)), destino_id: '', observacao: '' })
+    // Carrega roças da mesma fazenda (excluindo a origem)
+    const outras = rocas.filter(x => x.id !== r.id)
+    setTransfDestRocas(outras)
+    setFormTransf({ data: hoje(), num_cabecas: String(cabecasAtuais(r.pastejo)), destino_id: outras[0]?.id ?? '', observacao: '' })
     setOpenTransf(true)
   }
+
+  async function mudarFazendaDestino(fid: string) {
+    setTransfDestFazendaId(fid)
+    await carregarRocasDestino(fid, transfOrigem?.id ?? '')
+  }
+
   async function salvarTransferencia() {
     if (!transfOrigem || !formTransf.destino_id) return
     const [d, m, y] = formTransf.data.split('/')
@@ -175,9 +195,11 @@ export default function RocasPage() {
     // Fecha ativos na origem
     const ativos = transfOrigem.pastejo.filter(p => !p.data_saida)
     await Promise.all(ativos.map(p => supabase.from('pastejo').update({ data_saida: iso }).eq('id', p.id)))
-    // Abre entrada no destino
+    // Abre entrada no destino (com fazenda_id do destino)
     await supabase.from('pastejo').insert({
-      roca_id: formTransf.destino_id, fazenda_id: fazendaId, data_entrada: iso,
+      roca_id: formTransf.destino_id,
+      fazenda_id: transfDestFazendaId,
+      data_entrada: iso,
       num_cabecas: parseInt(formTransf.num_cabecas) || cabecasAtuais(transfOrigem.pastejo),
       observacao: formTransf.observacao.trim() || `Transferido de ${transfOrigem.nome}`,
     })
@@ -438,23 +460,37 @@ export default function RocasPage() {
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Transferir gado</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-2">
-            <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
-              <div className="text-center flex-1">
-                <p className="text-xs text-gray-500 mb-0.5">De</p>
-                <p className="font-semibold text-gray-900 text-sm">{transfOrigem?.nome}</p>
-              </div>
-              <ArrowRightLeft size={18} className="text-blue-500 shrink-0" />
-              <div className="text-center flex-1">
-                <p className="text-xs text-gray-500 mb-0.5">Para</p>
+            {/* Origem */}
+            <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+              <p className="text-xs text-gray-500 mb-1">De (origem)</p>
+              <p className="font-semibold text-gray-900 text-sm">{transfOrigem?.nome}</p>
+              <p className="text-xs text-gray-400">{fazendas.find(f => f.id === fazendaId)?.nome}</p>
+            </div>
+
+            {/* Fazenda destino */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">Fazenda destino</label>
+              <select
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                value={transfDestFazendaId}
+                onChange={e => mudarFazendaDestino(e.target.value)}>
+                {fazendas.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+              </select>
+            </div>
+
+            {/* Roça destino */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">Roça destino</label>
+              {transfDestRocas.length === 0 ? (
+                <p className="text-xs text-red-500">Nenhuma roça disponível nesta fazenda.</p>
+              ) : (
                 <select
-                  className="font-semibold text-gray-900 text-sm bg-transparent border-0 outline-none w-full text-center"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
                   value={formTransf.destino_id}
                   onChange={e => setFormTransf(p => ({ ...p, destino_id: e.target.value }))}>
-                  {rocas.filter(r => r.id !== transfOrigem?.id).map(r => (
-                    <option key={r.id} value={r.id}>{r.nome}</option>
-                  ))}
+                  {transfDestRocas.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
                 </select>
-              </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
