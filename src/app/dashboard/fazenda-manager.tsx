@@ -29,7 +29,6 @@ export function FazendaManager({ fazendas }: { fazendas: Fazenda[] }) {
     const { error } = await supabase.from('fazendas').insert({
       nome: form.nome.trim(),
       proprietario,
-      user_id: user?.id ?? null,
     })
     if (error) {
       alert(`Erro ao salvar: ${error.message}\nCódigo: ${error.code}\nDetalhes: ${error.details}`)
