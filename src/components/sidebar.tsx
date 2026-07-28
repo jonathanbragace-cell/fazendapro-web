@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, GitFork, Scale, Heart, ShieldPlus,
-  Wallet, Package, BarChart3, LogOut, Menu, X,
+  Wallet, Package, BarChart3, LogOut, Menu, X, Leaf,
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/pesagem',      label: 'Pesagem',     icon: Scale },
   { href: '/dashboard/reproducao',   label: 'Reprodução',  icon: Heart },
   { href: '/dashboard/sanitario',    label: 'Sanitário',   icon: ShieldPlus },
+  { href: '/dashboard/rocas',         label: 'Roças',       icon: Leaf },
   { href: '/dashboard/financeiro',   label: 'Financeiro',  icon: Wallet },
   { href: '/dashboard/estoque',      label: 'Estoque',     icon: Package },
   { href: '/dashboard/relatorios',   label: 'Relatórios',  icon: BarChart3 },
