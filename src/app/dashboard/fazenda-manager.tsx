@@ -15,6 +15,7 @@ export function FazendaManager({ fazendas }: { fazendas: Fazenda[] }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [erro, setErro] = useState('')
   const [form, setForm] = useState({ nome: '', area_ha: '', cidade: '', estado: '' })
 
   function setF(k: string, v: string) { setForm(prev => ({ ...prev, [k]: v })) }
@@ -22,12 +23,13 @@ export function FazendaManager({ fazendas }: { fazendas: Fazenda[] }) {
   async function handleSave() {
     if (!form.nome.trim()) return
     setSaving(true)
-    await supabase.from('fazendas').insert({
-      nome: form.nome.trim(),
-      area_ha: form.area_ha ? parseFloat(form.area_ha.replace(',', '.')) : null,
-      cidade: form.cidade.trim() || null,
-      estado: form.estado.trim() || null,
-    })
+    setErro('')
+    const { error } = await supabase.from('fazendas').insert({ nome: form.nome.trim() })
+    if (error) {
+      setErro(`Erro: ${error.message}`)
+      setSaving(false)
+      return
+    }
     setSaving(false)
     setOpen(false)
     setForm({ nome: '', area_ha: '', cidade: '', estado: '' })
@@ -109,6 +111,7 @@ export function FazendaManager({ fazendas }: { fazendas: Fazenda[] }) {
                 <Input placeholder="Ex: MG" value={form.estado} onChange={e => setF('estado', e.target.value)} maxLength={2} />
               </div>
             </div>
+            {erro && <p className="text-red-500 text-xs">{erro}</p>}
             <div className="flex gap-3 pt-2">
               <Button variant="outline" className="flex-1" onClick={() => setOpen(false)}>Cancelar</Button>
               <Button className="flex-1 bg-green-700 hover:bg-green-800 text-white" onClick={handleSave} disabled={saving}>
