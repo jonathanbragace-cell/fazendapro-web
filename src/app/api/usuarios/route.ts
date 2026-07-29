@@ -3,9 +3,11 @@ import { createClient as createServerClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 
 function adminClient() {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY não configurada no Vercel. Adicione a variável e faça um novo deploy.')
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    key,
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 }
@@ -50,7 +52,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Campos obrigatórios: nome, email, senha, cargo' }, { status: 400 })
   }
 
-  const adm = adminClient()
+  let adm: ReturnType<typeof adminClient>
+  try { adm = adminClient() } catch (e: any) { return NextResponse.json({ error: e.message }, { status: 500 }) }
   const { data, error } = await adm.auth.admin.createUser({
     email,
     password: senha,

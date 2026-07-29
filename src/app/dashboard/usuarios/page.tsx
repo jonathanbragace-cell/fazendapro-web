@@ -58,22 +58,29 @@ export default function UsuariosPage() {
     if (!editando && !form.senha.trim()) { setErro('Informe uma senha.'); return }
     setSaving(true); setErro('')
 
-    if (editando) {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 15000)
+
+      const method = editando ? 'PATCH' : 'POST'
+      const body = editando
+        ? { id: editando.id, nome: form.nome, cargo: form.cargo }
+        : { nome: form.nome, email: form.email, senha: form.senha, cargo: form.cargo }
+
       const res = await fetch('/api/usuarios', {
-        method: 'PATCH',
+        method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: editando.id, nome: form.nome, cargo: form.cargo }),
+        body: JSON.stringify(body),
+        signal: controller.signal,
       })
+      clearTimeout(timeout)
+
       const data = await res.json()
       if (data.error) { setErro(data.error); setSaving(false); return }
-    } else {
-      const res = await fetch('/api/usuarios', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: form.nome, email: form.email, senha: form.senha, cargo: form.cargo }),
-      })
-      const data = await res.json()
-      if (data.error) { setErro(data.error); setSaving(false); return }
+    } catch (e: any) {
+      setErro(e.name === 'AbortError' ? 'Tempo esgotado. Verifique se o deploy foi feito após adicionar a SUPABASE_SERVICE_ROLE_KEY no Vercel.' : `Erro: ${e.message}`)
+      setSaving(false)
+      return
     }
 
     setSaving(false); setOpen(false); load()
