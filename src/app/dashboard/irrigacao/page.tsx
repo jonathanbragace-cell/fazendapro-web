@@ -47,6 +47,8 @@ export default function IrrigacaoPage() {
   const [formC, setFormC] = useState({ descricao: '', valor: '', data: '' })
 
   const [saving, setSaving] = useState(false)
+  const [erroGeral, setErroGeral] = useState('')
+  const [erroForm, setErroForm] = useState('')
 
   useEffect(() => {
     supabase.from('fazendas').select('id, nome').order('nome').then(({ data }) => {
@@ -58,8 +60,34 @@ export default function IrrigacaoPage() {
 
   async function carregar() {
     setLoading(true)
-    const { data: sl } = await supabase
+    setErroGeral('')
+    const { data: sl, error: errSl } = await supabase
       .from('silagem').select('*').eq('fazenda_id', fazendaSel).order('data_plantio', { ascending: false })
+
+    if (errSl) {
+      const sql = `CREATE TABLE IF NOT EXISTS silagem (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  fazenda_id uuid NOT NULL REFERENCES fazendas(id) ON DELETE CASCADE,
+  data_plantio date NOT NULL,
+  data_colheita date,
+  area_ha numeric,
+  resultado_esperado_ton numeric,
+  resultado_obtido_ton numeric,
+  observacao text,
+  status text NOT NULL DEFAULT 'em_andamento',
+  created_at timestamptz DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS silagem_custos (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  silagem_id uuid NOT NULL REFERENCES silagem(id) ON DELETE CASCADE,
+  descricao text NOT NULL,
+  valor numeric NOT NULL DEFAULT 0,
+  data date NOT NULL DEFAULT CURRENT_DATE,
+  created_at timestamptz DEFAULT now()
+);`
+      setErroGeral(sql)
+      setSilagens([]); setLoading(false); return
+    }
     if (!sl?.length) { setSilagens([]); setLoading(false); return }
 
     const { data: custos } = await supabase
@@ -77,12 +105,14 @@ export default function IrrigacaoPage() {
 
   function abrirNovaSilagem() {
     setEditSilagem(null)
+    setErroForm('')
     setFormS({ data_plantio: new Date().toISOString().split('T')[0], data_colheita: '', area_ha: '', resultado_esperado_ton: '', resultado_obtido_ton: '', observacao: '' })
     setModalSilagem(true)
   }
 
   function abrirEditarSilagem(s: Silagem) {
     setEditSilagem(s)
+    setErroForm('')
     setFormS({
       data_plantio: s.data_plantio,
       data_colheita: s.data_colheita ?? '',
@@ -97,6 +127,7 @@ export default function IrrigacaoPage() {
   async function salvarSilagem() {
     if (!formS.data_plantio) return
     setSaving(true)
+    setErroForm('')
     const payload: any = {
       fazenda_id: fazendaSel,
       data_plantio: formS.data_plantio,
@@ -107,11 +138,15 @@ export default function IrrigacaoPage() {
       observacao: formS.observacao || null,
       status: formS.data_colheita ? 'colhido' : 'em_andamento',
     }
+    let err
     if (editSilagem) {
-      await supabase.from('silagem').update(payload).eq('id', editSilagem.id)
+      const r = await supabase.from('silagem').update(payload).eq('id', editSilagem.id)
+      err = r.error
     } else {
-      await supabase.from('silagem').insert(payload)
+      const r = await supabase.from('silagem').insert(payload)
+      err = r.error
     }
+    if (err) { setErroForm(`Erro ao salvar: ${err.message}`); setSaving(false); return }
     setSaving(false)
     setModalSilagem(false)
     carregar()
@@ -132,12 +167,17 @@ export default function IrrigacaoPage() {
   async function salvarCusto() {
     if (!modalCustoId || !formC.descricao || !formC.valor) return
     setSaving(true)
+    setErroForm('')
     const payload = { silagem_id: modalCustoId, descricao: formC.descricao, valor: parseFloat(formC.valor), data: formC.data }
+    let err
     if (editCusto) {
-      await supabase.from('silagem_custos').update(payload).eq('id', editCusto.id)
+      const r = await supabase.from('silagem_custos').update(payload).eq('id', editCusto.id)
+      err = r.error
     } else {
-      await supabase.from('silagem_custos').insert(payload)
+      const r = await supabase.from('silagem_custos').insert(payload)
+      err = r.error
     }
+    if (err) { setErroForm(`Erro: ${err.message}`); setSaving(false); return }
     const id = modalCustoId
     setSaving(false)
     setModalCustoId(null)
@@ -166,6 +206,24 @@ export default function IrrigacaoPage() {
           <Plus size={16} /> Nova safra
         </Button>
       </div>
+
+      {/* SQL de setup quando tabela não existe */}
+      {erroGeral && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <p className="text-sm font-semibold text-amber-800 mb-2">
+            Tabelas não encontradas. Execute este SQL no{' '}
+            <a href="https://supabase.com/dashboard/project/lcqmbuocthnqlwmqvcwj/sql/new" target="_blank" className="underline">
+              Supabase → SQL Editor
+            </a>:
+          </p>
+          <pre className="bg-white border border-amber-200 rounded p-3 text-xs text-gray-700 overflow-x-auto whitespace-pre-wrap">{erroGeral}</pre>
+          <button
+            onClick={() => { navigator.clipboard.writeText(erroGeral); alert('SQL copiado!') }}
+            className="mt-2 text-xs text-amber-700 font-semibold hover:underline">
+            Copiar SQL
+          </button>
+        </div>
+      )}
 
       {/* Seletor de fazenda */}
       <div className="flex gap-2 mb-6 flex-wrap">
@@ -341,6 +399,7 @@ export default function IrrigacaoPage() {
               <label className="text-sm font-medium text-gray-700 block mb-1">Observação</label>
               <Input placeholder="Variedade, condições, etc." value={formS.observacao} onChange={e => setFormS(p => ({ ...p, observacao: e.target.value }))} />
             </div>
+            {erroForm && <p className="text-red-500 text-xs">{erroForm}</p>}
             <div className="flex gap-3 pt-2">
               <Button variant="outline" className="flex-1" onClick={() => setModalSilagem(false)}>Cancelar</Button>
               <Button className="flex-1 bg-green-700 hover:bg-green-800 text-white" onClick={salvarSilagem} disabled={saving || !formS.data_plantio}>
@@ -370,6 +429,7 @@ export default function IrrigacaoPage() {
               <label className="text-sm font-medium text-gray-700 block mb-1">Data</label>
               <Input type="date" value={formC.data} onChange={e => setFormC(p => ({ ...p, data: e.target.value }))} />
             </div>
+            {erroForm && <p className="text-red-500 text-xs">{erroForm}</p>}
             <div className="flex gap-3 pt-2">
               <Button variant="outline" className="flex-1" onClick={() => setModalCustoId(null)}>Cancelar</Button>
               <Button className="flex-1 bg-green-700 hover:bg-green-800 text-white" onClick={salvarCusto} disabled={saving || !formC.descricao || !formC.valor}>
