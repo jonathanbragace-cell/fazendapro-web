@@ -52,6 +52,15 @@ export default function RebanhoPage() {
   const [form, setForm] = useState({ ...EMPTY })
   const [saving, setSaving] = useState(false)
   const [detail, setDetail] = useState<Animal | null>(null)
+  const [cargo, setCargo] = useState<string>('')
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      supabase.from('profiles').select('cargo').eq('id', user.id).single()
+        .then(({ data }) => { if (data?.cargo) setCargo(data.cargo) })
+    })
+  }, [])
 
   async function load() {
     setLoading(true)
@@ -142,6 +151,13 @@ export default function RebanhoPage() {
     load()
   }
 
+  async function handleDelete(a: Animal) {
+    if (!confirm(`Excluir permanentemente o animal ${a.brinco}? Esta ação não pode ser desfeita.`)) return
+    await supabase.from('animais').delete().eq('id', a.id)
+    setDetail(null)
+    load()
+  }
+
   async function handleBaixa(a: Animal, tipo: 'vendido' | 'morto') {
     if (!confirm(`Confirma marcar ${a.brinco} como ${tipo}?`)) return
     await supabase.from('animais').update({ status: tipo }).eq('id', a.id)
@@ -208,7 +224,12 @@ export default function RebanhoPage() {
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${catColor[a.status] ?? ''}`}>{LABELS[a.status]}</span>
                       </td>
                       <td className="px-4 py-3">
-                        <button onClick={() => openEdit(a)} className="text-gray-400 hover:text-green-600 mr-2"><Pencil size={15} /></button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => openEdit(a)} className="text-gray-400 hover:text-green-600"><Pencil size={15} /></button>
+                          {cargo === 'admin' && (
+                            <button onClick={() => handleDelete(a)} className="text-gray-300 hover:text-red-500"><Trash2 size={15} /></button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -344,10 +365,15 @@ export default function RebanhoPage() {
                 </div>
               ))}
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button variant="outline" className="flex-1 gap-1" onClick={() => openEdit(detail)}><Pencil size={14}/>Editar</Button>
               <Button variant="outline" className="flex-1 border-amber-200 text-amber-700 hover:bg-amber-50" onClick={() => handleBaixa(detail, 'vendido')}>Vendido</Button>
               <Button variant="outline" className="flex-1 border-red-200 text-red-700 hover:bg-red-50" onClick={() => handleBaixa(detail, 'morto')}>Morto</Button>
+              {cargo === 'admin' && (
+                <Button variant="outline" className="w-full border-red-300 text-red-600 hover:bg-red-50 gap-1" onClick={() => handleDelete(detail)}>
+                  <Trash2 size={14}/> Excluir permanentemente
+                </Button>
+              )}
             </div>
           </div>
         </div>
