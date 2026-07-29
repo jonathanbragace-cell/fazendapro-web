@@ -78,7 +78,7 @@ export default function UsuariosPage() {
       const data = await res.json()
       if (data.error) { setErro(data.error); setSaving(false); return }
     } catch (e: any) {
-      setErro(e.name === 'AbortError' ? 'Tempo esgotado. Verifique se o deploy foi feito após adicionar a SUPABASE_SERVICE_ROLE_KEY no Vercel.' : `Erro: ${e.message}`)
+      setErro(e.name === 'AbortError' ? 'Tempo esgotado. Verifique sua conexão e tente novamente.' : `Erro: ${e.message}`)
       setSaving(false)
       return
     }

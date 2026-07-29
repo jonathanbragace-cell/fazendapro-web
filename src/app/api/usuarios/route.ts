@@ -2,12 +2,11 @@ import { createClient } from '@supabase/supabase-js'
 import { createClient as createServerClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 
-function adminClient() {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY não configurada no Vercel. Adicione a variável e faça um novo deploy.')
+// Cliente público (anon key) sem cookies — apenas para criar usuários
+function publicClient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    key,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 }
@@ -17,27 +16,36 @@ async function verificarAdmin() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
   const { data: profile } = await supabase.from('profiles').select('cargo').eq('id', user.id).single()
-  if (profile?.cargo !== 'admin') return null
-  return user
+  // Sem perfil = primeiro usuário = admin
+  if (!profile || profile.cargo === 'admin') return user
+  return null
 }
 
 export async function GET() {
   const admin = await verificarAdmin()
   if (!admin) return NextResponse.json({ error: 'Sem permissão' }, { status: 403 })
 
-  const adm = adminClient()
-  const { data: { users }, error } = await adm.auth.admin.listUsers({ perPage: 1000 })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  const supabase = await createServerClient()
+  const { data: profiles } = await supabase.from('profiles').select('id, nome, cargo, created_at')
 
-  const { data: profiles } = await adm.from('profiles').select('*')
-  const profileMap = Object.fromEntries((profiles ?? []).map((p: any) => [p.id, p]))
+  // Busca e-mails via service role se disponível, senão usa só os perfis
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  let emailMap: Record<string, string> = {}
 
-  const result = users.map(u => ({
-    id: u.id,
-    email: u.email,
-    nome: profileMap[u.id]?.nome ?? u.email,
-    cargo: profileMap[u.id]?.cargo ?? 'vaqueiro',
-    created_at: u.created_at,
+  if (serviceKey) {
+    const adm = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false }
+    })
+    const { data: { users } } = await adm.auth.admin.listUsers({ perPage: 1000 })
+    emailMap = Object.fromEntries((users ?? []).map(u => [u.id, u.email ?? '']))
+  }
+
+  const result = (profiles ?? []).map((p: any) => ({
+    id: p.id,
+    nome: p.nome,
+    cargo: p.cargo,
+    email: emailMap[p.id] ?? '—',
+    created_at: p.created_at,
   }))
 
   return NextResponse.json({ users: result })
@@ -52,18 +60,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Campos obrigatórios: nome, email, senha, cargo' }, { status: 400 })
   }
 
-  let adm: ReturnType<typeof adminClient>
-  try { adm = adminClient() } catch (e: any) { return NextResponse.json({ error: e.message }, { status: 500 }) }
-  const { data, error } = await adm.auth.admin.createUser({
-    email,
-    password: senha,
-    email_confirm: true,
-    user_metadata: { nome, cargo },
+  // Tenta com service role key se disponível
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (serviceKey) {
+    const adm = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false }
+    })
+    const { data, error } = await adm.auth.admin.createUser({
+      email, password: senha, email_confirm: true,
+      user_metadata: { nome, cargo },
+    })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await adm.from('profiles').upsert({ id: data.user.id, nome, cargo })
+    return NextResponse.json({ ok: true })
+  }
+
+  // Fallback: usa signUp público (requer "Confirm email" desativado no Supabase)
+  const client = publicClient()
+  const { data, error } = await client.auth.signUp({
+    email, password: senha,
+    options: { data: { nome, cargo } },
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!data.user) return NextResponse.json({ error: 'Usuário não criado. Verifique se "Confirm email" está desativado no Supabase.' }, { status: 500 })
 
-  // Garante que o perfil existe (trigger pode demorar)
-  await adm.from('profiles').upsert({ id: data.user.id, nome, cargo })
+  // Aguarda trigger criar o perfil, senão insere manualmente
+  const supabase = await createServerClient()
+  await new Promise(r => setTimeout(r, 500))
+  await supabase.from('profiles').upsert({ id: data.user.id, nome, cargo })
 
   return NextResponse.json({ ok: true })
 }
@@ -75,7 +99,12 @@ export async function DELETE(req: NextRequest) {
   const { id } = await req.json()
   if (id === admin.id) return NextResponse.json({ error: 'Não pode excluir a própria conta' }, { status: 400 })
 
-  const adm = adminClient()
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceKey) return NextResponse.json({ error: 'Exclusão requer SUPABASE_SERVICE_ROLE_KEY no Vercel.' }, { status: 500 })
+
+  const adm = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false }
+  })
   const { error } = await adm.auth.admin.deleteUser(id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
@@ -87,8 +116,8 @@ export async function PATCH(req: NextRequest) {
   if (!admin) return NextResponse.json({ error: 'Sem permissão' }, { status: 403 })
 
   const { id, cargo, nome } = await req.json()
-  const adm = adminClient()
-  await adm.from('profiles').update({ cargo, nome }).eq('id', id)
+  const supabase = await createServerClient()
+  await supabase.from('profiles').update({ cargo, nome }).eq('id', id)
 
   return NextResponse.json({ ok: true })
 }
