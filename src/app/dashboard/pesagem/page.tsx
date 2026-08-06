@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -53,6 +53,18 @@ export default function PesagemPage() {
   }
 
   useEffect(() => { load() }, [])
+
+  const loadRef = useRef(load)
+  useEffect(() => { loadRef.current = load })
+  useEffect(() => {
+    const channel = supabase
+      .channel('pesagem-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pesagens' }, () => {
+        loadRef.current()
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
 
   async function searchAnimais(q: string) {
     if (!q) { setAnimalResults([]); return }

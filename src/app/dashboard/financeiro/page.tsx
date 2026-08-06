@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -82,6 +82,18 @@ export default function FinanceiroPage() {
 
   useEffect(() => { load() }, [filter])
 
+  const loadRef = useRef(load)
+  useEffect(() => { loadRef.current = load })
+  useEffect(() => {
+    const channel = supabase
+      .channel('financeiro-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'financeiro' }, () => {
+        loadRef.current()
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
   const catsDoTipo = cats.filter(c => c.tipo === form.tipo)
 
   function setF(k: string, v: any) {
@@ -115,19 +127,28 @@ export default function FinanceiroPage() {
 
   async function handleSave() {
     const val = parseFloat(form.valor.replace(',', '.'))
-    if (!val || val <= 0) return
+    if (!val || val <= 0) { alert('Informe um valor válido.'); return }
     const [d, m, y] = form.data.split('/')
-    const iso = `${y}-${m?.padStart(2,'0')}-${d?.padStart(2,'0')}`
+    const iso = y && m && d ? `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}` : new Date().toISOString().split('T')[0]
     setSaving(true)
     const status = form.pendente ? 'pendente' : (form.tipo === 'entrada' ? 'recebido' : 'pago')
-    await supabase.from('financeiro').insert({
+    const payload: any = {
       fazenda_id: form.fazenda_id || fazendas[0]?.id,
       tipo: form.tipo, categoria: form.categoria,
       valor: val, data: iso,
       descricao: form.descricao.trim() || form.categoria,
-      status,
-      data_vencimento: form.pendente && form.data_vencimento ? form.data_vencimento : null,
-    })
+    }
+
+    // tenta com status/data_vencimento; se coluna não existir, tenta sem
+    let { error } = await supabase.from('financeiro').insert({ ...payload, status, data_vencimento: form.pendente && form.data_vencimento ? form.data_vencimento : null })
+    if (error && /status|data_vencimento|PGRST204/.test(error.message + (error.code ?? ''))) {
+      ;({ error } = await supabase.from('financeiro').insert(payload))
+    }
+    if (error) {
+      alert(`Erro ao salvar:\n${error.message}\nCódigo: ${error.code}\n${error.details ?? ''}`)
+      setSaving(false)
+      return
+    }
     setSaving(false)
     setOpen(false)
     load()
@@ -170,14 +191,14 @@ export default function FinanceiroPage() {
   const isVencido = (mov: Mov) => mov.data_vencimento && mov.data_vencimento < hoje()
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 md:p-6">
+      <div className="flex items-center justify-between mb-4 md:mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Financeiro</h1>
-          <p className="text-gray-500 text-sm mt-1">{movs.length} lançamentos</p>
+          <h1 className="text-xl md:text-2xl font-bold text-gray-900">Financeiro</h1>
+          <p className="text-gray-500 text-xs md:text-sm mt-0.5">{movs.length} lançamentos</p>
         </div>
-        <Button onClick={abrirNovo} className="bg-green-700 hover:bg-green-800 text-white gap-2">
-          <Plus size={16} /> Lançamento
+        <Button onClick={abrirNovo} className="bg-green-700 hover:bg-green-800 text-white gap-1.5 text-sm px-3 py-2">
+          <Plus size={15} /> Lançamento
         </Button>
       </div>
 
@@ -196,7 +217,7 @@ export default function FinanceiroPage() {
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 mb-4 md:mb-6">
         <div className="bg-white rounded-xl border border-green-200 p-4 shadow-sm">
           <div className="flex items-center gap-2 mb-1"><Wallet size={14} className="text-green-600" /><span className="text-xs text-gray-500 font-medium uppercase">Saldo</span></div>
           <p className={`text-lg font-bold ${saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmt(saldo)}</p>
@@ -220,10 +241,10 @@ export default function FinanceiroPage() {
       </div>
 
       {/* Filtros */}
-      <div className="flex gap-2 mb-4 flex-wrap">
+      <div className="flex gap-2 mb-4 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap scrollbar-none">
         {FILTERS.map(f => (
           <button key={f.key} onClick={() => setFilter(f.key)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${filter === f.key ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-600 border-gray-200 hover:border-green-300'}`}>
+            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${filter === f.key ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-600 border-gray-200 hover:border-green-300'}`}>
             {f.label}
             {f.key === 'a_pagar' && totAPagar > 0 && (
               <span className="ml-1.5 bg-orange-500 text-white rounded-full px-1.5 py-0.5 text-[10px] font-bold">
@@ -246,12 +267,16 @@ export default function FinanceiroPage() {
           : movs.length === 0
             ? <div className="p-8 text-center text-gray-400 text-sm">Nenhum lançamento.</div>
             : (
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    {['Data', 'Descrição', 'Categoria', 'Status', 'Valor', ''].map(h => (
-                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">{h}</th>
-                    ))}
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Data</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Descrição</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Categoria</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Status</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Valor</th>
+                    <th className="px-3 py-2.5"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -259,17 +284,27 @@ export default function FinanceiroPage() {
                     const vencido = isVencido(m)
                     return (
                       <tr key={m.id} className={`hover:bg-gray-50 ${m.status === 'pendente' ? 'bg-amber-50/40' : ''}`}>
-                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                        <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap text-xs md:text-sm">
                           {fmtDate(m.data)}
                           {m.data_vencimento && m.status === 'pendente' && (
                             <div className={`text-[10px] mt-0.5 ${vencido ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
-                              {vencido ? '⚠ Venc. ' : 'Venc. '}{fmtDate(m.data_vencimento)}
+                              {vencido ? '⚠' : ''} Venc. {fmtDate(m.data_vencimento)}
                             </div>
                           )}
+                          {/* Status visível só no mobile */}
+                          <div className="sm:hidden mt-1">
+                            {m.status === 'pendente'
+                              ? <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${vencido ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{vencido ? '⚠ Vencido' : 'Pendente'}</span>
+                              : <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${m.tipo === 'entrada' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{m.tipo === 'entrada' ? '↑' : '↓'}</span>
+                            }
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-gray-900">{m.descricao}</td>
-                        <td className="px-4 py-3 text-gray-500">{m.categoria}</td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2.5 text-gray-900 text-xs md:text-sm">
+                          <p>{m.descricao}</p>
+                          <p className="text-gray-400 text-[10px] sm:hidden">{m.categoria}</p>
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-500 hidden sm:table-cell">{m.categoria}</td>
+                        <td className="px-3 py-2.5 hidden sm:table-cell">
                           {m.status === 'pendente' ? (
                             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${vencido ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                               {vencido ? '⚠ Vencido' : '⏳ Pendente'}
@@ -280,20 +315,19 @@ export default function FinanceiroPage() {
                             </span>
                           )}
                         </td>
-                        <td className={`px-4 py-3 font-semibold whitespace-nowrap ${m.status === 'pendente' ? 'text-gray-500' : m.tipo === 'entrada' ? 'text-green-700' : 'text-red-600'}`}>
+                        <td className={`px-3 py-2.5 font-semibold whitespace-nowrap text-xs md:text-sm ${m.status === 'pendente' ? 'text-gray-500' : m.tipo === 'entrada' ? 'text-green-700' : 'text-red-600'}`}>
                           {m.tipo === 'entrada' ? '+' : '-'}{fmt(m.valor)}
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2 justify-end">
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-1.5 justify-end">
                             {m.status === 'pendente' && (
                               <button onClick={() => marcarPago(m)}
-                                title={m.tipo === 'entrada' ? 'Marcar como recebido' : 'Marcar como pago'}
                                 className="flex items-center gap-1 text-xs text-green-700 font-medium hover:underline whitespace-nowrap">
                                 <Check size={13} />
-                                {m.tipo === 'entrada' ? 'Receber' : 'Pagar'}
+                                <span className="hidden sm:inline">{m.tipo === 'entrada' ? 'Receber' : 'Pagar'}</span>
                               </button>
                             )}
-                            <button onClick={() => handleDelete(m.id)} className="text-gray-300 hover:text-red-500">
+                            <button onClick={() => handleDelete(m.id)} className="text-gray-300 hover:text-red-500 p-1">
                               <Trash2 size={14} />
                             </button>
                           </div>
@@ -303,13 +337,14 @@ export default function FinanceiroPage() {
                   })}
                 </tbody>
               </table>
+              </div>
             )
         }
       </div>
 
       {/* Modal */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="w-full max-w-md max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-14 max-sm:rounded-b-none max-sm:rounded-t-2xl max-sm:translate-x-0 max-sm:translate-y-0 max-sm:left-0 max-sm:max-w-none overflow-y-auto max-h-[90vh] max-sm:max-h-full">
           <DialogHeader><DialogTitle>Novo lançamento</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-2">
             {fazendas.length > 1 && (
