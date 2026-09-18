@@ -6,13 +6,15 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Search, Pencil, Trash2, X, Scissors, Skull, AlertTriangle } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, X, Scissors, Skull, AlertTriangle, Baby } from 'lucide-react'
 
 type Animal = {
   id: string; fazenda_id: string; brinco: string; nome?: string
   data_nascimento: string; sexo: string; raca: string; categoria: string
   origem: string; status: string; status_reprodutivo?: string; preco_compra?: number | null; observacao?: string
   lote?: { id: string; nome: string } | null
+  mae_id?: string | null
+  mae?: { id: string; brinco: string } | null
 }
 type Fazenda = { id: string; nome: string }
 type Lote    = { id: string; nome: string }
@@ -21,7 +23,6 @@ const CATS          = ['matriz', 'bezerro', 'novilha', 'touro', 'boi']
 const SEXOS         = ['femea', 'macho']
 const ORIGENS       = ['nascimento', 'compra']
 const DEFAULT_RACAS = ['Nelore', 'Girolando', 'Gir', 'Angus', 'Brahman', 'Tabapuã', 'Mestiço', 'Outra']
-const LS_KEY        = 'fazendapro_racas'
 const LABELS: Record<string, string> = {
   matriz:'Matriz', bezerro:'Bezerro', novilha:'Novilha', touro:'Touro', boi:'Boi',
   femea:'Fêmea', macho:'Macho', nascimento:'Nascimento', compra:'Compra',
@@ -65,27 +66,25 @@ export default function RebanhoPage() {
   const [perdaCount, setPerdaCount] = useState(0)
   const [atencaoCount, setAtencaoCount] = useState(0)
   const [novaRaca, setNovaRaca] = useState('')
+  const [openParto, setOpenParto] = useState(false)
+  const [partoMae, setPartoMae] = useState<Animal | null>(null)
+  const [formParto, setFormParto] = useState({ brinco: '', sexo: 'femea', raca: '', data_nascimento: '' })
+  const [savingParto, setSavingParto] = useState(false)
 
-  function addRaca() {
+  async function addRaca() {
     const r = novaRaca.trim()
     if (!r || racas.includes(r)) { setNovaRaca(''); return }
-    const updated = [...racas, r]
-    setRacas(updated)
-    localStorage.setItem(LS_KEY, JSON.stringify(updated))
+    await supabase.from('racas').insert({ nome: r })
+    setRacas(prev => [...prev, r])
     setForm(prev => ({ ...prev, raca: r }))
     setNovaRaca('')
   }
 
-  function removeRaca(raca: string) {
-    const updated = racas.filter(r => r !== raca)
-    setRacas(updated)
-    localStorage.setItem(LS_KEY, JSON.stringify(updated))
-    setForm(prev => ({ ...prev, raca: prev.raca === raca ? (updated[0] ?? '') : prev.raca }))
+  async function removeRaca(raca: string) {
+    await supabase.from('racas').delete().eq('nome', raca)
+    setRacas(prev => prev.filter(r => r !== raca))
+    setForm(prev => ({ ...prev, raca: prev.raca === raca ? (racas.filter(r => r !== raca)[0] ?? '') : prev.raca }))
   }
-
-  useEffect(() => {
-    try { const s = localStorage.getItem(LS_KEY); if (s) setRacas(JSON.parse(s)) } catch {}
-  }, [])
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -99,6 +98,9 @@ export default function RebanhoPage() {
     setLoading(true)
     const { data: faz } = await supabase.from('fazendas').select('id, nome').order('nome')
     const { data: lots } = await supabase.from('lotes').select('id, nome, fazenda_id').order('nome')
+    const { data: racasDb } = await supabase.from('racas').select('nome').order('nome')
+    if (racasDb && racasDb.length > 0) setRacas(racasDb.map(r => r.nome))
+    else setRacas(DEFAULT_RACAS)
 
     // Contagens para os filtros (sem filtro de categoria/repro/sexo)
     let cq = supabase.from('animais').select('categoria, status_reprodutivo, sexo, status').in('status', ['ativo', 'descarte', 'morto', 'atencao'])
@@ -109,9 +111,10 @@ export default function RebanhoPage() {
     const newSexo: Record<string, number> = { '': 0 }
     let newDescarte = 0, newPerda = 0, newAtencao = 0
     for (const a of all ?? []) {
-      if (a.status === 'descarte') { newDescarte++; continue }
       if (a.status === 'morto') { newPerda++; continue }
-      if (a.status === 'atencao') { newAtencao++; continue }
+      if (a.status === 'descarte') newDescarte++
+      if (a.status === 'atencao') newAtencao++
+      // descarte e atencao continuam aparecendo nos contadores de categoria
       newCounts[''] = (newCounts[''] ?? 0) + 1
       newCounts[a.categoria] = (newCounts[a.categoria] ?? 0) + 1
       if (a.status_reprodutivo) newRepro[a.status_reprodutivo] = (newRepro[a.status_reprodutivo] ?? 0) + 1
@@ -128,7 +131,7 @@ export default function RebanhoPage() {
     setPerdaCount(newPerda)
     setAtencaoCount(newAtencao)
 
-    let q = supabase.from('animais').select('*, lote:lotes(id, nome)').order('brinco')
+    let q = supabase.from('animais').select('*, lote:lotes(id, nome), mae:animais!mae_id(id, brinco)').order('brinco')
     if (catFilter === 'descarte') {
       q = q.eq('status', 'descarte')
     } else if (catFilter === 'perda') {
@@ -136,7 +139,7 @@ export default function RebanhoPage() {
     } else if (catFilter === 'atencao') {
       q = q.eq('status', 'atencao')
     } else {
-      q = q.eq('status', 'ativo')
+      q = q.in('status', ['ativo', 'descarte', 'atencao'])
       if (catFilter) q = q.eq('categoria', catFilter)
       if (reproFilter) q = q.eq('status_reprodutivo', reproFilter)
       if (sexoFilter && catFilter === 'bezerro') q = q.eq('sexo', sexoFilter)
@@ -224,6 +227,15 @@ export default function RebanhoPage() {
       ? (form.data_nascimento.includes('/') ? toISO(form.data_nascimento) : form.data_nascimento)
       : new Date().toISOString().split('T')[0]
 
+    // Verifica duplicidade de brinco
+    const { data: dup } = await supabase.from('animais').select('id').ilike('brinco', brinco).limit(1)
+    const isDup = dup && dup.length > 0 && (!editing || dup[0].id !== editing.id)
+    if (isDup) {
+      alert(`Brinco "${brinco}" já está cadastrado. Escolha outro número.`)
+      setSaving(false)
+      return
+    }
+
     const payload: any = {
       brinco,
       nome: form.nome.trim() || null,
@@ -269,6 +281,43 @@ export default function RebanhoPage() {
     load()
   }
 
+  function abrirParto(mae: Animal) {
+    const hoje = new Date().toISOString().split('T')[0].split('-').reverse().join('/')
+    setPartoMae(mae)
+    setFormParto({ brinco: '', sexo: 'femea', raca: mae.raca, data_nascimento: hoje })
+    setDetail(null)
+    setOpenParto(true)
+  }
+
+  async function handleSaveParto() {
+    if (!partoMae) return
+    setSavingParto(true)
+    const brinco = formParto.brinco.trim().toUpperCase()
+    if (brinco) {
+      const { data: dup } = await supabase.from('animais').select('id').ilike('brinco', brinco).limit(1)
+      if (dup && dup.length > 0) {
+        alert(`Brinco "${brinco}" já está cadastrado. Escolha outro número.`)
+        setSavingParto(false)
+        return
+      }
+    }
+    const dataNasc = formParto.data_nascimento
+      ? (formParto.data_nascimento.includes('/') ? toISO(formParto.data_nascimento) : formParto.data_nascimento)
+      : new Date().toISOString().split('T')[0]
+    const finalBrinco = brinco || await gerarBrinco()
+    const { error } = await supabase.from('animais').insert({
+      brinco: finalBrinco, categoria: 'bezerro', sexo: formParto.sexo,
+      raca: formParto.raca, origem: 'nascimento', data_nascimento: dataNasc,
+      fazenda_id: partoMae.fazenda_id, status: 'ativo', mae_id: partoMae.id,
+    })
+    if (error) { alert('Erro ao registrar parto: ' + error.message); setSavingParto(false); return }
+    // Atualiza status da mãe para lactando
+    await supabase.from('animais').update({ status_reprodutivo: 'lactando' }).eq('id', partoMae.id)
+    setSavingParto(false)
+    setOpenParto(false)
+    load()
+  }
+
   async function handleBaixa(a: Animal, tipo: 'vendido' | 'morto') {
     if (!confirm(`Confirma marcar ${a.brinco} como ${tipo}?`)) return
     await supabase.from('animais').update({ status: tipo }).eq('id', a.id)
@@ -278,10 +327,12 @@ export default function RebanhoPage() {
 
   async function handleDescarte(a: Animal) {
     if (a.status === 'descarte') {
-      await supabase.from('animais').update({ status: 'ativo' }).eq('id', a.id)
+      const { error } = await supabase.from('animais').update({ status: 'ativo' }).eq('id', a.id)
+      if (error) { alert('Erro ao remover descarte: ' + error.message); return }
     } else {
       if (!confirm(`Marcar animal ${a.brinco} para descarte?`)) return
-      await supabase.from('animais').update({ status: 'descarte' }).eq('id', a.id)
+      const { error } = await supabase.from('animais').update({ status: 'descarte' }).eq('id', a.id)
+      if (error) { alert('Erro ao marcar descarte: ' + error.message); return }
     }
     setDetail(null)
     load()
@@ -289,9 +340,11 @@ export default function RebanhoPage() {
 
   async function handleAtencao(a: Animal) {
     if (a.status === 'atencao') {
-      await supabase.from('animais').update({ status: 'ativo' }).eq('id', a.id)
+      const { error } = await supabase.from('animais').update({ status: 'ativo' }).eq('id', a.id)
+      if (error) { alert('Erro: ' + error.message); return }
     } else {
-      await supabase.from('animais').update({ status: 'atencao' }).eq('id', a.id)
+      const { error } = await supabase.from('animais').update({ status: 'atencao' }).eq('id', a.id)
+      if (error) { alert('Erro ao marcar atenção: ' + error.message); return }
     }
     setDetail(null)
     load()
@@ -389,6 +442,13 @@ export default function RebanhoPage() {
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-1.5">
+                          {a.categoria === 'matriz' && a.status_reprodutivo === 'gestante' && (
+                            <button onClick={() => abrirParto(a)}
+                              title="Registrar parto"
+                              className="p-1 text-pink-400 hover:text-pink-600 transition-colors">
+                              <Baby size={14} />
+                            </button>
+                          )}
                           {a.status !== 'descarte' && (
                             <button onClick={() => openEdit(a)} className="text-gray-400 hover:text-green-600 p-1"><Pencil size={14} /></button>
                           )}
@@ -595,6 +655,7 @@ export default function RebanhoPage() {
                 ['Lote', (detail.lote as any)?.nome ?? '—'],
                 detail.origem === 'compra' && detail.preco_compra ? ['Preço de compra', fmtMoney(detail.preco_compra)] : null,
                 detail.status_reprodutivo ? ['Status reprod.', LABELS[detail.status_reprodutivo] ?? detail.status_reprodutivo] : null,
+                detail.mae?.brinco ? ['Mãe (brinco)', detail.mae.brinco] : null,
                 detail.observacao ? ['Obs', detail.observacao] : null,
               ].filter(Boolean).map(([k, v]: any) => (
                 <div key={k} className="flex justify-between">
@@ -604,6 +665,11 @@ export default function RebanhoPage() {
               ))}
             </div>
             <div className="flex gap-2 flex-wrap">
+              {detail.categoria === 'matriz' && detail.status_reprodutivo === 'gestante' && (
+                <Button className="w-full bg-pink-600 hover:bg-pink-700 text-white gap-2" onClick={() => abrirParto(detail)}>
+                  <Baby size={15}/> Registrar parto
+                </Button>
+              )}
               {detail.status !== 'descarte' && (
                 <Button variant="outline" className="flex-1 gap-1" onClick={() => openEdit(detail)}><Pencil size={14}/>Editar</Button>
               )}
@@ -636,6 +702,61 @@ export default function RebanhoPage() {
           </div>
         </div>
       )}
+
+      {/* Modal registro de parto */}
+      <Dialog open={openParto} onOpenChange={setOpenParto}>
+        <DialogContent className="w-full max-w-sm max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-auto max-sm:rounded-b-none max-sm:rounded-t-2xl max-sm:max-w-none">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Baby size={16} className="text-pink-600" />
+              Registrar parto — {partoMae?.brinco}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="bg-pink-50 border border-pink-200 rounded-lg px-3 py-2 text-xs text-pink-800">
+              Mãe: <strong>{partoMae?.brinco}</strong>{partoMae?.nome ? ` (${partoMae.nome})` : ''} · Raça: {partoMae?.raca}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Brinco do bezerro</label>
+                <Input placeholder="Gerado auto" value={formParto.brinco}
+                  onChange={e => setFormParto(p => ({ ...p, brinco: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Nascimento</label>
+                <Input placeholder="DD/MM/AAAA" value={formParto.data_nascimento}
+                  onChange={e => setFormParto(p => ({ ...p, data_nascimento: e.target.value }))} maxLength={10} />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">Sexo *</label>
+              <div className="grid grid-cols-2 gap-2">
+                {['femea', 'macho'].map(s => (
+                  <button key={s} type="button"
+                    onClick={() => setFormParto(p => ({ ...p, sexo: s }))}
+                    className={`py-2 rounded-lg text-sm font-medium border transition-colors ${formParto.sexo === s ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-600 border-gray-200 hover:border-green-300'}`}>
+                    {s === 'femea' ? 'Fêmea' : 'Macho'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">Raça</label>
+              <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                value={formParto.raca} onChange={e => setFormParto(p => ({ ...p, raca: e.target.value }))}>
+                {racas.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            <p className="text-xs text-gray-400">A mãe será automaticamente marcada como <strong>Lactando</strong> após salvar.</p>
+            <div className="flex gap-3 pt-1">
+              <Button variant="outline" className="flex-1" onClick={() => setOpenParto(false)}>Cancelar</Button>
+              <Button className="flex-1 bg-pink-600 hover:bg-pink-700 text-white" onClick={handleSaveParto} disabled={savingParto}>
+                {savingParto ? 'Salvando...' : 'Registrar parto'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

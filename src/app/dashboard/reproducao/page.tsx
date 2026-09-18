@@ -73,15 +73,19 @@ export default function ReproducaoPage() {
   useEffect(() => { load() }, [])
 
   async function searchAnimais(q: string) {
-    if (!q) { setAnimalResults([]); return }
-    const { data } = await supabase.from('animais').select('id, brinco, nome')
-      .eq('status', 'ativo').in('categoria', ['matriz'])
-      .ilike('brinco', `%${q}%`).limit(8)
-    setAnimalResults(data ?? [])
+    let query = supabase.from('animais').select('id, brinco, nome, status_reprodutivo')
+      .in('status', ['ativo', 'atencao'])
+      .eq('categoria', 'matriz')
+      .in('status_reprodutivo', ['vazia', 'em_diagnostico'])
+      .order('brinco')
+      .limit(50)
+    if (q) query = query.ilike('brinco', `%${q}%`)
+    const { data } = await query
+    setAnimalResults((data ?? []) as any)
   }
 
   useEffect(() => {
-    const t = setTimeout(() => searchAnimais(form.animal_search), 300)
+    const t = setTimeout(() => searchAnimais(form.animal_search), 200)
     return () => clearTimeout(t)
   }, [form.animal_search])
 
@@ -123,7 +127,7 @@ export default function ReproducaoPage() {
             {regs.filter(r => !r.diagnostico && !r.data_parto_real).length} aguardando diagnóstico
           </p>
         </div>
-        <Button onClick={() => { setForm(prev => ({ ...prev, fazenda_id: fazendas[0]?.id ?? '' })); setOpen(true) }}
+        <Button onClick={() => { setForm(prev => ({ ...prev, fazenda_id: fazendas[0]?.id ?? '', animal_id: '', animal_search: '' })); searchAnimais(''); setOpen(true) }}
           className="bg-green-700 hover:bg-green-800 text-white gap-2">
           <Plus size={16} /> Nova cobertura
         </Button>
@@ -182,20 +186,32 @@ export default function ReproducaoPage() {
             )}
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Matriz (brinco) *</label>
-              <Input placeholder="Buscar brinco..." value={form.animal_search}
-                onChange={e => { setF('animal_search', e.target.value); if (!e.target.value) setF('animal_id', '') }} />
-              {animalResults.length > 0 && (
-                <div className="border border-gray-200 rounded-lg mt-1 divide-y divide-gray-100 max-h-32 overflow-y-auto">
-                  {animalResults.map(a => (
-                    <button key={a.id} type="button" className="w-full text-left px-3 py-2 hover:bg-green-50 text-sm"
+              <Input
+                placeholder="Buscar brinco..."
+                value={form.animal_search}
+                autoComplete="off"
+                onFocus={() => { if (!form.animal_id) searchAnimais(form.animal_search) }}
+                onChange={e => { setF('animal_search', e.target.value); setF('animal_id', '') }}
+              />
+              {animalResults.length > 0 && !form.animal_id && (
+                <div className="border border-gray-200 rounded-lg mt-1 divide-y divide-gray-100 max-h-48 overflow-y-auto shadow-sm">
+                  {animalResults.map((a: any) => (
+                    <button key={a.id} type="button" className="w-full text-left px-3 py-2 hover:bg-green-50 text-sm flex items-center justify-between"
                       onClick={() => { setF('animal_id', a.id); setF('animal_search', a.brinco); setAnimalResults([]) }}>
-                      <span className="font-medium">{a.brinco}</span>
-                      {a.nome && <span className="text-gray-500 ml-2">{a.nome}</span>}
+                      <span>
+                        <span className="font-medium">{a.brinco}</span>
+                        {a.nome && <span className="text-gray-400 ml-2 text-xs">{a.nome}</span>}
+                      </span>
+                      {a.status_reprodutivo && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${a.status_reprodutivo === 'gestante' ? 'bg-pink-100 text-pink-700' : 'bg-gray-100 text-gray-500'}`}>
+                          {a.status_reprodutivo === 'gestante' ? 'Prenha' : a.status_reprodutivo === 'vazia' ? 'Vazia' : a.status_reprodutivo}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
               )}
-              {form.animal_id && <p className="text-xs text-green-600 mt-1">✓ Matriz selecionada</p>}
+              {form.animal_id && <p className="text-xs text-green-600 mt-1">Matriz selecionada: {form.animal_search}</p>}
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Tipo de cobertura *</label>

@@ -17,17 +17,20 @@ type Roca = {
   pastejo: Pastejo[]
 }
 
-function diasNoAno(pastejo: Pastejo[]): number {
+function resumoAno(pastejo: Pastejo[]) {
   const ano = new Date().getFullYear()
-  return pastejo.reduce((total, p) => {
+  let dias = 0, cabecasAno = 0
+  for (const p of pastejo) {
     const entrada = new Date(p.data_entrada)
-    if (entrada.getFullYear() > ano) return total
+    if (entrada.getFullYear() > ano) continue
     const saida = p.data_saida ? new Date(p.data_saida) : new Date()
     const inicio = entrada.getFullYear() < ano ? new Date(`${ano}-01-01`) : entrada
     const fim = saida.getFullYear() > ano ? new Date(`${ano}-12-31`) : saida
-    const dias = Math.max(0, Math.ceil((fim.getTime() - inicio.getTime()) / 86400000))
-    return total + dias
-  }, 0)
+    const d = Math.max(0, Math.ceil((fim.getTime() - inicio.getTime()) / 86400000))
+    dias += d
+    cabecasAno += p.num_cabecas
+  }
+  return { dias, cabecasAno }
 }
 
 // Soma TODAS as entradas ativas (sem saída)
@@ -257,28 +260,45 @@ export default function RocasPage() {
         <div className="space-y-3">
           {rocas.map(r => {
             const cabecas = cabecasAtuais(r.pastejo)
-            const dias = diasNoAno(r.pastejo)
+            const { dias, cabecasAno } = resumoAno(r.pastejo)
             const temAtivo = r.pastejo.some(p => !p.data_saida)
             const aberto = expandido === r.id
             const qtdAtivos = r.pastejo.filter(p => !p.data_saida).length
+            const ano = new Date().getFullYear()
 
             return (
               <div key={r.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-4">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-bold shrink-0 ${cabecas > 0 ? 'bg-green-600' : 'bg-gray-300'}`}>
-                      {r.nome.charAt(0).toUpperCase()}
+                    {/* Ícone com destaque de cabeças */}
+                    <div className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center shrink-0 ${cabecas > 0 ? 'bg-green-600' : 'bg-gray-100 border border-gray-200'}`}>
+                      {cabecas > 0 ? (
+                        <>
+                          <span className="text-white text-xl font-bold leading-none">{cabecas}</span>
+                          <span className="text-green-200 text-[9px] font-medium mt-0.5">cabeças</span>
+                        </>
+                      ) : (
+                        <span className="text-gray-400 text-base font-bold">{r.nome.charAt(0).toUpperCase()}</span>
+                      )}
                     </div>
                     <div className="min-w-0">
                       <p className="font-semibold text-gray-900 truncate">{r.nome}</p>
-                      <p className="text-xs text-gray-400 flex items-center gap-1 flex-wrap">
-                        {r.area_ha ? <><MapPin size={10} />{r.area_ha} ha · </> : null}
-                        <span className={cabecas > 0 ? 'text-green-600 font-medium' : 'text-gray-400'}>
-                          {cabecas > 0 ? `${cabecas} cabeças${qtdAtivos > 1 ? ` (${qtdAtivos} lotes)` : ''}` : 'Vazia'}
-                        </span>
-                        {' · '}
-                        <span className="text-blue-600 font-medium">{dias} dias/{new Date().getFullYear()}</span>
+                      <p className="text-xs text-gray-400 flex items-center gap-1 flex-wrap mt-0.5">
+                        {r.area_ha ? <><MapPin size={10} /><span>{r.area_ha} ha</span></> : null}
+                        {!cabecas && <span className="text-gray-400">· Vazia</span>}
+                        {qtdAtivos > 1 && <span className="text-green-600 font-medium">· {qtdAtivos} lotes</span>}
                       </p>
+                      {/* Resumo anual */}
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-[11px] font-semibold px-2 py-0.5 rounded-full">
+                          {dias} dias em {ano}
+                        </span>
+                        {cabecasAno > 0 && (
+                          <span className="inline-flex items-center gap-1 bg-green-50 text-green-700 text-[11px] font-semibold px-2 py-0.5 rounded-full">
+                            {cabecasAno} cab. no ano
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -290,7 +310,7 @@ export default function RocasPage() {
                     </button>
 
                     {/* Transferir e Saída — só quando tem gado */}
-                    {temAtivo && rocas.length > 1 && (
+                    {temAtivo && (rocas.length > 1 || fazendas.length > 1) && (
                       <button onClick={() => abrirTransferencia(r)}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-medium hover:bg-blue-100 transition-colors border border-blue-200">
                         <ArrowRightLeft size={12} /> Transferir
@@ -321,6 +341,32 @@ export default function RocasPage() {
                 {/* Histórico expandido */}
                 {aberto && (
                   <div className="border-t border-gray-100 px-5 py-3">
+                    {/* Resumo anual no topo do expandido */}
+                    {(dias > 0 || cabecasAno > 0) && (
+                      <div className="flex items-center gap-3 mb-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="text-center">
+                          <p className="text-lg font-bold text-blue-700">{dias}</p>
+                          <p className="text-[10px] text-gray-400 uppercase tracking-wide">dias em {ano}</p>
+                        </div>
+                        <div className="w-px h-8 bg-gray-200" />
+                        <div className="text-center">
+                          <p className="text-lg font-bold text-green-700">{cabecasAno}</p>
+                          <p className="text-[10px] text-gray-400 uppercase tracking-wide">cabeças passaram</p>
+                        </div>
+                        {dias > 0 && cabecasAno > 0 && (() => {
+                          const entradas = r.pastejo.filter(p => new Date(p.data_entrada).getFullYear() === ano).length
+                          return entradas > 0 ? (
+                            <>
+                              <div className="w-px h-8 bg-gray-200" />
+                              <div className="text-center">
+                                <p className="text-lg font-bold text-purple-700">{Math.round(cabecasAno / entradas)}</p>
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide">média/entrada</p>
+                              </div>
+                            </>
+                          ) : null
+                        })()}
+                      </div>
+                    )}
                     {r.pastejo.length === 0 ? (
                       <p className="text-xs text-gray-400 py-2">Nenhum registro de pastejo ainda.</p>
                     ) : (
@@ -339,7 +385,7 @@ export default function RocasPage() {
                           {r.pastejo.map(p => {
                             const ent = new Date(p.data_entrada)
                             const sai = p.data_saida ? new Date(p.data_saida) : new Date()
-                            const dias = Math.max(0, Math.ceil((sai.getTime() - ent.getTime()) / 86400000))
+                            const diasP = Math.max(0, Math.ceil((sai.getTime() - ent.getTime()) / 86400000))
                             return (
                               <tr key={p.id} className="text-gray-600">
                                 <td className="py-2">{fmtDate(p.data_entrada)}</td>
@@ -349,7 +395,7 @@ export default function RocasPage() {
                                     : <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full font-medium">Ativo</span>}
                                 </td>
                                 <td className="py-2 font-medium">{p.num_cabecas}</td>
-                                <td className="py-2 text-blue-600 font-medium">{dias}d</td>
+                                <td className="py-2 text-blue-600 font-medium">{diasP}d</td>
                                 <td className="py-2 text-gray-400 truncate max-w-[120px]">{p.observacao ?? '—'}</td>
                                 <td className="py-2">
                                   <button onClick={() => excluirPastejo(p.id)} className="text-gray-200 hover:text-red-400">
