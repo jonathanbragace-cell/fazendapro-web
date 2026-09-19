@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,6 +46,7 @@ const EMPTY = {
 
 export default function RebanhoPage() {
   const supabase = createClient()
+  const router = useRouter()
   const [animais, setAnimais] = useState<Animal[]>([])
   const [fazendas, setFazendas] = useState<Fazenda[]>([])
   const [lotes, setLotes] = useState<Lote[]>([])
@@ -915,10 +917,13 @@ export default function RebanhoPage() {
               <div className="bg-green-50 rounded-xl w-12 h-12 flex items-center justify-center">
                 <span className="text-green-700 font-bold text-sm">{detail.brinco.slice(0,3)}</span>
               </div>
-              <div>
+              <div className="flex-1 min-w-0">
                 <p className="font-bold text-gray-900 text-lg">{detail.brinco}</p>
                 {detail.nome && <p className="text-gray-500 text-sm">{detail.nome}</p>}
               </div>
+              <button onClick={() => { setDetail(null); router.push(`/dashboard/rebanho/${detail.id}`) }} className="text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors whitespace-nowrap">
+                Ver ficha →
+              </button>
             </div>
             <div className="space-y-2 text-sm mb-5">
               {[
