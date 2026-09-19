@@ -78,6 +78,17 @@ export default function RebanhoPage() {
   const [partoMae, setPartoMae] = useState<Animal | null>(null)
   const [formParto, setFormParto] = useState({ brinco: '', sexo: 'femea', raca: '', data_nascimento: '' })
   const [savingParto, setSavingParto] = useState(false)
+  // Bloco 4: multi-select
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [lastClickIdx, setLastClickIdx] = useState(-1)
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkAction, setBulkAction] = useState('')
+  const [bulkLoteId, setBulkLoteId] = useState('')
+  const [bulkRocaId, setBulkRocaId] = useState('')
+  const [bulkPeso, setBulkPeso] = useState('')
+  const [bulkPesoData, setBulkPesoData] = useState('')
+  const [bulkSanitario, setBulkSanitario] = useState({ produto: '', data: '', proxima: '', via: 'injetavel' })
+  const [savingBulk, setSavingBulk] = useState(false)
 
   async function addRaca() {
     const r = novaRaca.trim()
@@ -374,6 +385,81 @@ export default function RebanhoPage() {
     load()
   }
 
+  function toggleSelect(id: string, idx: number, shift: boolean) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (shift && lastClickIdx >= 0) {
+        const [from, to] = lastClickIdx < idx ? [lastClickIdx, idx] : [idx, lastClickIdx]
+        animais.slice(from, to + 1).forEach(a => next.add(a.id))
+      } else {
+        next.has(id) ? next.delete(id) : next.add(id)
+        setLastClickIdx(idx)
+      }
+      return next
+    })
+  }
+
+  function toggleAll() {
+    if (selected.size > 0) setSelected(new Set())
+    else setSelected(new Set(animais.map(a => a.id)))
+  }
+
+  function openBulk(action: string) {
+    const hoje = new Date().toISOString().split('T')[0]
+    if (action === 'pesagem') { setBulkPeso(''); setBulkPesoData(hoje) }
+    if (action === 'sanitario') setBulkSanitario({ produto: '', data: hoje, proxima: '', via: 'injetavel' })
+    if (action === 'lote') setBulkLoteId('')
+    if (action === 'roca') setBulkRocaId('')
+    setBulkAction(action)
+    setBulkOpen(true)
+  }
+
+  async function executeBulkAction() {
+    const ids = [...selected]
+    if (ids.length === 0) return
+    setSavingBulk(true)
+    switch (bulkAction) {
+      case 'lote':
+        await supabase.from('animais').update({ lote_id: bulkLoteId || null }).in('id', ids)
+        break
+      case 'roca':
+        await (supabase.from('animais') as any).update({ roca_id: bulkRocaId || null }).in('id', ids)
+        break
+      case 'descarte':
+        await supabase.from('animais').update({ marcacao: 'descarte' } as any).in('id', ids)
+        break
+      case 'undescarte':
+      case 'unatencao':
+        await supabase.from('animais').update({ marcacao: null } as any).in('id', ids)
+        break
+      case 'atencao':
+        await supabase.from('animais').update({ marcacao: 'atencao' } as any).in('id', ids)
+        break
+      case 'pesagem': {
+        const kg = parseFloat(bulkPeso.replace(',', '.'))
+        if (isNaN(kg) || kg <= 0) { alert('Informe o peso.'); setSavingBulk(false); return }
+        await supabase.from('pesagens').insert(ids.map(id => ({
+          animal_id: id, peso_kg: kg, data: bulkPesoData || new Date().toISOString().split('T')[0],
+        })))
+        break
+      }
+      case 'sanitario': {
+        if (!bulkSanitario.produto.trim()) { alert('Informe o produto.'); setSavingBulk(false); return }
+        await supabase.from('sanitario').insert(ids.map(id => ({
+          animal_id: id, produto: bulkSanitario.produto.trim(),
+          data: bulkSanitario.data || new Date().toISOString().split('T')[0],
+          proxima_aplicacao: bulkSanitario.proxima || null, via: bulkSanitario.via,
+        })))
+        break
+      }
+    }
+    setSavingBulk(false)
+    setBulkOpen(false)
+    setSelected(new Set())
+    setLastClickIdx(-1)
+    load()
+  }
+
   async function openAddToLote() {
     const { data } = await supabase.from('animais').select('*').eq('status', 'ativo').is('lote_id', null).order('brinco')
     const sorted = (data ?? []).sort((a, b) => {
@@ -530,6 +616,46 @@ export default function RebanhoPage() {
         )
       })()}
 
+      {/* Barra de ações em massa */}
+      {selected.size > 0 && (
+        <div className="fixed md:relative bottom-16 md:bottom-auto left-0 right-0 md:left-auto md:right-auto z-30 bg-white border border-gray-200 md:rounded-xl shadow-xl md:shadow-sm px-4 py-3 mb-3 flex items-center gap-3 overflow-x-auto">
+          <span className="text-sm font-bold text-gray-900 shrink-0">{selected.size} selecionado{selected.size !== 1 ? 's' : ''}</span>
+          <button onClick={() => { setSelected(new Set()); setLastClickIdx(-1) }} className="text-gray-400 hover:text-gray-700 shrink-0 p-1 rounded-full hover:bg-gray-100 transition-colors">
+            <X size={14} />
+          </button>
+          <div className="flex gap-2 overflow-x-auto">
+            {lotes.length > 0 && (
+              <button onClick={() => openBulk('lote')} className="px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 whitespace-nowrap transition-colors">
+                Mover para lote
+              </button>
+            )}
+            {rocas.length > 0 && (
+              <button onClick={() => openBulk('roca')} className="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 whitespace-nowrap transition-colors">
+                Mover para roça
+              </button>
+            )}
+            <button onClick={() => openBulk('descarte')} className="px-2.5 py-1 rounded-full text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 whitespace-nowrap transition-colors">
+              Marcar descarte
+            </button>
+            <button onClick={() => openBulk('undescarte')} className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200 whitespace-nowrap transition-colors">
+              Remover descarte
+            </button>
+            <button onClick={() => openBulk('atencao')} className="px-2.5 py-1 rounded-full text-xs font-medium bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100 whitespace-nowrap transition-colors">
+              Marcar atenção
+            </button>
+            <button onClick={() => openBulk('unatencao')} className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200 hover:bg-gray-200 whitespace-nowrap transition-colors">
+              Remover atenção
+            </button>
+            <button onClick={() => openBulk('pesagem')} className="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 whitespace-nowrap transition-colors">
+              Pesagem em lote
+            </button>
+            <button onClick={() => openBulk('sanitario')} className="px-2.5 py-1 rounded-full text-xs font-medium bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100 whitespace-nowrap transition-colors">
+              Sanitário em lote
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Tabela */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         {loading
@@ -541,6 +667,13 @@ export default function RebanhoPage() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
+                    <th className="px-3 py-2 w-8">
+                      <input type="checkbox"
+                        checked={animais.length > 0 && selected.size === animais.length}
+                        ref={el => { if (el) el.indeterminate = selected.size > 0 && selected.size < animais.length }}
+                        onChange={toggleAll}
+                        className="rounded border-gray-300 cursor-pointer" />
+                    </th>
                     <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Brinco</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Categoria</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Ações</th>
@@ -551,8 +684,15 @@ export default function RebanhoPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {animais.map(a => (
-                    <tr key={a.id} className="hover:bg-gray-50 transition-colors">
+                  {animais.map((a, idx) => (
+                    <tr key={a.id} className={`hover:bg-gray-50 transition-colors ${selected.has(a.id) ? 'bg-green-50/60' : ''}`}>
+                      <td className="px-3 py-2 w-8">
+                        <input type="checkbox"
+                          checked={selected.has(a.id)}
+                          onClick={e => { e.stopPropagation(); toggleSelect(a.id, idx, (e as React.MouseEvent).shiftKey) }}
+                          onChange={() => {}}
+                          className="rounded border-gray-300 cursor-pointer" />
+                      </td>
                       <td className="px-3 py-2 font-semibold text-gray-900">
                         <button onClick={() => setDetail(a)} className="hover:text-green-700 hover:underline">{a.brinco}</button>
                         {a.nome && <p className="text-xs text-gray-400 font-normal">{a.nome}</p>}
@@ -837,6 +977,99 @@ export default function RebanhoPage() {
           </div>
         </div>
       )}
+
+      {/* Dialog: Confirmação de ação em massa */}
+      <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
+        <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {bulkAction === 'lote' && 'Mover para lote'}
+              {bulkAction === 'roca' && 'Mover para roça'}
+              {bulkAction === 'descarte' && 'Marcar como descarte'}
+              {bulkAction === 'undescarte' && 'Remover marcação descarte'}
+              {bulkAction === 'atencao' && 'Marcar como atenção'}
+              {bulkAction === 'unatencao' && 'Remover marcação atenção'}
+              {bulkAction === 'pesagem' && 'Registrar pesagem em lote'}
+              {bulkAction === 'sanitario' && 'Aplicação sanitária em lote'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="pt-1 space-y-4">
+            <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+              <p className="text-sm font-semibold text-green-800">{selected.size} animal{selected.size !== 1 ? 'is' : ''} serão afetados</p>
+            </div>
+
+            {bulkAction === 'lote' && (
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Lote de destino</label>
+                <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={bulkLoteId} onChange={e => setBulkLoteId(e.target.value)}>
+                  <option value="">Remover do lote (sem lote)</option>
+                  {lotes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+                </select>
+              </div>
+            )}
+
+            {bulkAction === 'roca' && (
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Roça de destino</label>
+                <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={bulkRocaId} onChange={e => setBulkRocaId(e.target.value)}>
+                  <option value="">Remover da roça (sem roça)</option>
+                  {rocas.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
+                </select>
+              </div>
+            )}
+
+            {bulkAction === 'pesagem' && (
+              <>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Peso (kg) *</label>
+                  <Input type="number" placeholder="Ex: 350" value={bulkPeso} onChange={e => setBulkPeso(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Data</label>
+                  <Input type="date" value={bulkPesoData} onChange={e => setBulkPesoData(e.target.value)} />
+                </div>
+              </>
+            )}
+
+            {bulkAction === 'sanitario' && (
+              <>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Produto *</label>
+                  <Input placeholder="Ex: Vacina Aftosa, Ivermectina" value={bulkSanitario.produto} onChange={e => setBulkSanitario(p => ({ ...p, produto: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">Data aplicação</label>
+                    <Input type="date" value={bulkSanitario.data} onChange={e => setBulkSanitario(p => ({ ...p, data: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">Próxima aplicação</label>
+                    <Input type="date" value={bulkSanitario.proxima} onChange={e => setBulkSanitario(p => ({ ...p, proxima: e.target.value }))} />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Via</label>
+                  <div className="flex gap-2">
+                    {['injetavel', 'oral', 'topica'].map(v => (
+                      <button key={v} type="button" onClick={() => setBulkSanitario(p => ({ ...p, via: v }))}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors capitalize ${bulkSanitario.via === v ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-600 border-gray-200'}`}>
+                        {v === 'injetavel' ? 'Injetável' : v === 'oral' ? 'Oral' : 'Tópica'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1" onClick={() => setBulkOpen(false)}>Cancelar</Button>
+              <Button className="flex-1 bg-green-700 hover:bg-green-800" onClick={executeBulkAction} disabled={savingBulk}>
+                {savingBulk ? 'Processando...' : `Confirmar (${selected.size})`}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal: Adicionar animais ao lote */}
       <Dialog open={openAddLote} onOpenChange={setOpenAddLote}>
