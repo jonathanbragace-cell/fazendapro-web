@@ -11,7 +11,7 @@ import { Plus, Search, Pencil, Trash2, X, Scissors, Skull, AlertTriangle, Baby }
 type Animal = {
   id: string; fazenda_id: string; brinco: string; nome?: string
   data_nascimento: string; sexo: string; raca: string; categoria: string
-  origem: string; status: string; status_reprodutivo?: string; preco_compra?: number | null; observacao?: string
+  origem: string; status: string; marcacao?: string | null; status_reprodutivo?: string; preco_compra?: number | null; observacao?: string
   lote?: { id: string; nome: string } | null
   mae_id?: string | null
   mae?: { id: string; brinco: string } | null
@@ -103,7 +103,7 @@ export default function RebanhoPage() {
     else setRacas(DEFAULT_RACAS)
 
     // Contagens para os filtros (sem filtro de categoria/repro/sexo)
-    let cq = supabase.from('animais').select('categoria, status_reprodutivo, sexo, status').in('status', ['ativo', 'descarte', 'morto', 'atencao'])
+    let cq = supabase.from('animais').select('categoria, status_reprodutivo, sexo, status, marcacao').in('status', ['ativo', 'morto'])
     if (search) cq = cq.ilike('brinco', `%${search}%`)
     const { data: all } = await cq
     const newCounts: Record<string, number> = { '': 0 }
@@ -112,9 +112,8 @@ export default function RebanhoPage() {
     let newDescarte = 0, newPerda = 0, newAtencao = 0
     for (const a of all ?? []) {
       if (a.status === 'morto') { newPerda++; continue }
-      if (a.status === 'descarte') newDescarte++
-      if (a.status === 'atencao') newAtencao++
-      // descarte e atencao continuam aparecendo nos contadores de categoria
+      if (a.marcacao === 'descarte') newDescarte++
+      if (a.marcacao === 'atencao') newAtencao++
       newCounts[''] = (newCounts[''] ?? 0) + 1
       newCounts[a.categoria] = (newCounts[a.categoria] ?? 0) + 1
       if (a.status_reprodutivo) newRepro[a.status_reprodutivo] = (newRepro[a.status_reprodutivo] ?? 0) + 1
@@ -133,13 +132,13 @@ export default function RebanhoPage() {
 
     let q = supabase.from('animais').select('*, lote:lotes(id, nome), mae:animais!mae_id(id, brinco)').order('brinco')
     if (catFilter === 'descarte') {
-      q = q.eq('status', 'descarte')
+      q = q.eq('status', 'ativo').eq('marcacao', 'descarte')
     } else if (catFilter === 'perda') {
       q = q.eq('status', 'morto')
     } else if (catFilter === 'atencao') {
-      q = q.eq('status', 'atencao')
+      q = q.eq('status', 'ativo').eq('marcacao', 'atencao')
     } else {
-      q = q.in('status', ['ativo', 'descarte', 'atencao'])
+      q = q.eq('status', 'ativo')
       if (catFilter) q = q.eq('categoria', catFilter)
       if (reproFilter) q = q.eq('status_reprodutivo', reproFilter)
       if (sexoFilter && catFilter === 'bezerro') q = q.eq('sexo', sexoFilter)
@@ -326,12 +325,12 @@ export default function RebanhoPage() {
   }
 
   async function handleDescarte(a: Animal) {
-    if (a.status === 'descarte') {
-      const { error } = await supabase.from('animais').update({ status: 'ativo' }).eq('id', a.id)
+    if (a.marcacao === 'descarte') {
+      const { error } = await supabase.from('animais').update({ marcacao: null }).eq('id', a.id)
       if (error) { alert('Erro ao remover descarte: ' + error.message); return }
     } else {
       if (!confirm(`Marcar animal ${a.brinco} para descarte?`)) return
-      const { error } = await supabase.from('animais').update({ status: 'descarte' }).eq('id', a.id)
+      const { error } = await supabase.from('animais').update({ marcacao: 'descarte' }).eq('id', a.id)
       if (error) { alert('Erro ao marcar descarte: ' + error.message); return }
     }
     setDetail(null)
@@ -339,11 +338,11 @@ export default function RebanhoPage() {
   }
 
   async function handleAtencao(a: Animal) {
-    if (a.status === 'atencao') {
-      const { error } = await supabase.from('animais').update({ status: 'ativo' }).eq('id', a.id)
+    if (a.marcacao === 'atencao') {
+      const { error } = await supabase.from('animais').update({ marcacao: null }).eq('id', a.id)
       if (error) { alert('Erro: ' + error.message); return }
     } else {
-      const { error } = await supabase.from('animais').update({ status: 'atencao' }).eq('id', a.id)
+      const { error } = await supabase.from('animais').update({ marcacao: 'atencao' }).eq('id', a.id)
       if (error) { alert('Erro ao marcar atenção: ' + error.message); return }
     }
     setDetail(null)
@@ -449,12 +448,12 @@ export default function RebanhoPage() {
                               <Baby size={14} />
                             </button>
                           )}
-                          {a.status !== 'descarte' && (
+                          {a.marcacao !== 'descarte' && (
                             <button onClick={() => openEdit(a)} className="text-gray-400 hover:text-green-600 p-1"><Pencil size={14} /></button>
                           )}
                           <button onClick={() => handleDescarte(a)}
-                            title={a.status === 'descarte' ? 'Remover descarte' : 'Marcar para descarte'}
-                            className={`p-1 transition-colors ${a.status === 'descarte' ? 'text-orange-400' : 'text-gray-300 hover:text-orange-500'}`}>
+                            title={a.marcacao === 'descarte' ? 'Remover descarte' : 'Marcar para descarte'}
+                            className={`p-1 transition-colors ${a.marcacao === 'descarte' ? 'text-orange-400' : 'text-gray-300 hover:text-orange-500'}`}>
                             <Scissors size={13} />
                           </button>
                           {a.status !== 'morto' && (
@@ -466,8 +465,8 @@ export default function RebanhoPage() {
                           )}
                           {a.status !== 'morto' && (
                             <button onClick={() => handleAtencao(a)}
-                              title={a.status === 'atencao' ? 'Remover atenção' : 'Colocar sob atenção'}
-                              className={`p-1 transition-colors ${a.status === 'atencao' ? 'text-yellow-500' : 'text-gray-300 hover:text-yellow-500'}`}>
+                              title={a.marcacao === 'atencao' ? 'Remover atenção' : 'Colocar sob atenção'}
+                              className={`p-1 transition-colors ${a.marcacao === 'atencao' ? 'text-yellow-500' : 'text-gray-300 hover:text-yellow-500'}`}>
                               <AlertTriangle size={13} />
                             </button>
                           )}
@@ -483,7 +482,10 @@ export default function RebanhoPage() {
                       </td>
                       <td className="px-3 py-2 text-gray-600 hidden sm:table-cell">{a.raca}</td>
                       <td className="px-3 py-2">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${catColor[a.status] ?? ''}`}>{LABELS[a.status]}</span>
+                        {(() => {
+                          const key = a.marcacao === 'descarte' ? 'descarte' : a.marcacao === 'atencao' ? 'atencao' : a.status
+                          return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${catColor[key] ?? ''}`}>{LABELS[key] ?? key}</span>
+                        })()}
                       </td>
                       <td className="px-3 py-2 text-gray-500 hidden md:table-cell">{(a.lote as any)?.nome ?? '—'}</td>
                     </tr>
@@ -670,22 +672,22 @@ export default function RebanhoPage() {
                   <Baby size={15}/> Registrar parto
                 </Button>
               )}
-              {detail.status !== 'descarte' && (
+              {detail.marcacao !== 'descarte' && (
                 <Button variant="outline" className="flex-1 gap-1" onClick={() => openEdit(detail)}><Pencil size={14}/>Editar</Button>
               )}
               <Button variant="outline"
-                className={`flex-1 gap-1 ${detail.status === 'descarte' ? 'border-gray-200 text-gray-600 hover:bg-gray-50' : 'border-orange-200 text-orange-600 hover:bg-orange-50'}`}
+                className={`flex-1 gap-1 ${detail.marcacao === 'descarte' ? 'border-gray-200 text-gray-600 hover:bg-gray-50' : 'border-orange-200 text-orange-600 hover:bg-orange-50'}`}
                 onClick={() => handleDescarte(detail)}>
-                <Scissors size={14}/>{detail.status === 'descarte' ? 'Remover descarte' : 'Descarte'}
+                <Scissors size={14}/>{detail.marcacao === 'descarte' ? 'Remover descarte' : 'Descarte'}
               </Button>
               {detail.status !== 'morto' && (
                 <Button variant="outline"
-                  className={`flex-1 gap-1 ${detail.status === 'atencao' ? 'bg-yellow-50 border-yellow-300 text-yellow-700 hover:bg-yellow-100' : 'border-yellow-200 text-yellow-600 hover:bg-yellow-50'}`}
+                  className={`flex-1 gap-1 ${detail.marcacao === 'atencao' ? 'bg-yellow-50 border-yellow-300 text-yellow-700 hover:bg-yellow-100' : 'border-yellow-200 text-yellow-600 hover:bg-yellow-50'}`}
                   onClick={() => handleAtencao(detail)}>
-                  <AlertTriangle size={14}/>{detail.status === 'atencao' ? 'Remover atenção' : 'Atenção'}
+                  <AlertTriangle size={14}/>{detail.marcacao === 'atencao' ? 'Remover atenção' : 'Atenção'}
                 </Button>
               )}
-              {detail.status !== 'descarte' && detail.status !== 'morto' && (
+              {detail.marcacao !== 'descarte' && detail.status !== 'morto' && (
                 <>
                   <Button variant="outline" className="flex-1 border-amber-200 text-amber-700 hover:bg-amber-50" onClick={() => handleBaixa(detail, 'vendido')}>Vendido</Button>
                   <Button variant="outline" className="flex-1 gap-1 border-red-200 text-red-600 hover:bg-red-50" onClick={() => handleBaixa(detail, 'morto')}>

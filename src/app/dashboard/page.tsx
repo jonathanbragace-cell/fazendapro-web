@@ -3,8 +3,6 @@ import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import { FazendaManager } from './fazenda-manager'
 
-const VIVOS = ['ativo', 'descarte', 'atencao']
-
 type KPIs = {
   totalVivos: number
   ativos: number
@@ -36,7 +34,6 @@ async function getKPIs(fazendaIds: string[]): Promise<KPIs | null> {
 
   const [
     { count: totalVivos },
-    { count: ativos },
     { count: descartes },
     { count: atencaoCount },
     { count: matrizes },
@@ -48,13 +45,12 @@ async function getKPIs(fazendaIds: string[]): Promise<KPIs | null> {
     { data: finMes },
     { data: pesRecentes },
   ] = await Promise.all([
-    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).in('status', VIVOS)),
     addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('status', 'ativo')),
-    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('status', 'descarte')),
-    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('status', 'atencao')),
-    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('categoria', 'matriz').in('status', VIVOS)),
-    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('sexo', 'femea').in('status', VIVOS)),
-    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('status_reprodutivo', 'gestante').in('status', VIVOS)),
+    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('marcacao', 'descarte')),
+    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('marcacao', 'atencao')),
+    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('categoria', 'matriz').eq('status', 'ativo')),
+    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('sexo', 'femea').eq('status', 'ativo').or('marcacao.is.null,marcacao.neq.descarte')),
+    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('status_reprodutivo', 'gestante').eq('status', 'ativo')),
     addF(supabase.from('reproducao').select('*', { count: 'exact', head: true }).eq('resultado_parto', 'vivo').gte('data_parto_real', inicioMes)),
     addF(supabase.from('sanitario').select('*', { count: 'exact', head: true }).lte('proxima_aplicacao', hoje)),
     addF(supabase.from('estoque').select('quantidade, estoque_minimo')),
@@ -73,11 +69,14 @@ async function getKPIs(fazendaIds: string[]): Promise<KPIs | null> {
     ? Math.round(ps.reduce((s: number, p: any) => s + p.peso_kg, 0) / ps.length)
     : null
 
+  const tv = totalVivos ?? 0
+  const dc = descartes ?? 0
+  const ac = atencaoCount ?? 0
   return {
-    totalVivos: totalVivos ?? 0,
-    ativos: ativos ?? 0,
-    descartes: descartes ?? 0,
-    atencaoCount: atencaoCount ?? 0,
+    totalVivos: tv,
+    ativos: tv - dc - ac,
+    descartes: dc,
+    atencaoCount: ac,
     matrizes: matrizes ?? 0,
     femeasVivas: fv,
     gestantes: gestantes ?? 0,
