@@ -14,7 +14,7 @@ type Animal = {
   id: string; fazenda_id: string; brinco: string; nome?: string | null
   data_nascimento: string; sexo: string; raca: string; categoria: string
   origem: string; status: string; marcacao?: string | null
-  status_reprodutivo?: string | null; preco_compra?: number | null
+  status_reprodutivo?: string | null; valor_compra?: number | null
   observacao?: string | null; lote_id?: string | null; mae_id?: string | null
   lote?: { id: string; nome: string } | null
   mae?: { id: string; brinco: string; nome?: string | null } | null
@@ -122,7 +122,7 @@ export default function FichaAnimal() {
 
   const [form, setForm] = useState({
     brinco: '', nome: '', data_nascimento: '', sexo: 'femea', raca: '',
-    categoria: '', origem: 'nascimento', preco_compra: '',
+    categoria: '', origem: 'nascimento', valor_compra: '',
     status_reprodutivo: '', marcacao: '', observacao: '', lote_id: '', mae_id: ''
   })
 
@@ -156,7 +156,7 @@ export default function FichaAnimal() {
         raca: animal.raca || '',
         categoria: animal.categoria || '',
         origem: animal.origem || 'nascimento',
-        preco_compra: animal.preco_compra != null ? String(animal.preco_compra) : '',
+        valor_compra: animal.valor_compra != null ? String(animal.valor_compra) : '',
         status_reprodutivo: animal.status_reprodutivo || '',
         marcacao: animal.marcacao || '',
         observacao: animal.observacao || '',
@@ -198,7 +198,7 @@ export default function FichaAnimal() {
       raca: form.raca,
       categoria: form.categoria,
       origem: form.origem,
-      preco_compra: form.preco_compra ? parseFloat(form.preco_compra) : null,
+      valor_compra: form.valor_compra ? parseFloat(form.valor_compra) : null,
       status_reprodutivo: form.status_reprodutivo || null,
       marcacao: form.marcacao || null,
       observacao: form.observacao.trim() || null,
@@ -249,8 +249,8 @@ export default function FichaAnimal() {
     timeline.push({
       date: animal.data_nascimento,
       label: animal.origem === 'compra' ? 'Entrada por compra' : 'Nascimento',
-      sub: animal.origem === 'compra' && animal.preco_compra != null
-        ? `R$ ${fmtBRL(animal.preco_compra)}` : undefined,
+      sub: animal.origem === 'compra' && animal.valor_compra != null
+        ? `R$ ${fmtBRL(animal.valor_compra)}` : undefined,
       icon: '🐄',
     })
   }
@@ -306,7 +306,7 @@ export default function FichaAnimal() {
 
       <div className="px-4 pt-4">
         {/* Aviso: sem valor de compra */}
-        {animal.status === 'ativo' && animal.preco_compra == null && (
+        {animal.status === 'ativo' && animal.valor_compra == null && (
           <div className="mb-3 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
             <span className="text-amber-500 shrink-0 text-base">⚠️</span>
             <p className="text-sm text-amber-800 flex-1">Valor de compra não informado.</p>
@@ -355,7 +355,7 @@ export default function FichaAnimal() {
         <Bloco title="Financeiro">
           <InfoRow
             label="Valor de entrada"
-            value={animal.preco_compra != null ? `R$ ${fmtBRL(animal.preco_compra)}` : undefined}
+            value={animal.valor_compra != null ? `R$ ${fmtBRL(animal.valor_compra)}` : undefined}
           />
           <InfoRow label="Peso atual" value={pesoAtual != null ? `${pesoAtual} kg` : undefined} />
           {ganhoTotal != null && (
@@ -589,8 +589,8 @@ export default function FichaAnimal() {
             </div>
             <div>
               <label className="text-xs font-medium text-gray-600 block mb-1">Valor de compra (R$)</label>
-              <Input type="number" placeholder="0,00" value={form.preco_compra}
-                onChange={e => setForm(f => ({ ...f, preco_compra: e.target.value }))} />
+              <Input type="number" placeholder="0,00" value={form.valor_compra}
+                onChange={e => setForm(f => ({ ...f, valor_compra: e.target.value }))} />
             </div>
             <div>
               <label className="text-xs font-medium text-gray-600 block mb-1">Lote</label>

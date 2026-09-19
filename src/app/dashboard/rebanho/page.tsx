@@ -12,7 +12,7 @@ import { Plus, Search, Pencil, Trash2, X, Scissors, Skull, AlertTriangle, Baby }
 type Animal = {
   id: string; fazenda_id: string; brinco: string; nome?: string
   data_nascimento: string; sexo: string; raca: string; categoria: string
-  origem: string; status: string; marcacao?: string | null; status_reprodutivo?: string; preco_compra?: number | null; observacao?: string
+  origem: string; status: string; marcacao?: string | null; status_reprodutivo?: string; valor_compra?: number | null; observacao?: string
   lote?: { id: string; nome: string } | null
   mae_id?: string | null
   mae?: { id: string; brinco: string } | null
@@ -41,7 +41,7 @@ const catColor: Record<string, string> = {
 
 const EMPTY = {
   brinco:'', nome:'', data_nascimento:'', sexo:'femea', raca:'Nelore',
-  categoria:'bezerro', origem:'nascimento', preco_compra:'', status_reprodutivo:'', observacao:'', lote_id:'', fazenda_id:'',
+  categoria:'bezerro', origem:'nascimento', valor_compra:'', status_reprodutivo:'', observacao:'', lote_id:'', fazenda_id:'',
 }
 
 export default function RebanhoPage() {
@@ -224,7 +224,7 @@ export default function RebanhoPage() {
     setForm({
       brinco: a.brinco, nome: a.nome ?? '', data_nascimento: a.data_nascimento,
       sexo: a.sexo, raca: a.raca, categoria: a.categoria, origem: a.origem,
-      status_reprodutivo: a.status_reprodutivo ?? '', preco_compra: a.preco_compra ? String(a.preco_compra) : '',
+      status_reprodutivo: a.status_reprodutivo ?? '', valor_compra: a.valor_compra ? String(a.valor_compra) : '',
       observacao: a.observacao ?? '', lote_id: (a.lote as any)?.id ?? '', fazenda_id: a.fazenda_id,
     })
     setOpen(true)
@@ -279,25 +279,25 @@ export default function RebanhoPage() {
       data_nascimento: dataNasc,
       sexo: form.sexo, raca: form.raca, categoria: form.categoria,
       origem: form.origem, status_reprodutivo: form.categoria === 'matriz' ? (form.status_reprodutivo || null) : null,
-      preco_compra: form.origem === 'compra' && form.preco_compra ? parseFloat(form.preco_compra.replace(',', '.')) : null,
+      valor_compra: form.origem === 'compra' && form.valor_compra ? parseFloat(form.valor_compra.replace(',', '.')) : null,
       observacao: form.observacao.trim() || null,
       lote_id: form.lote_id || null, fazenda_id: fid,
       status: 'ativo',
     }
     let error
-    // Try save, if schema missing (e.g. preco_compra) retry without that field
+    // Try save, if schema missing (e.g. valor_compra) retry without that field
     if (editing) {
       ({ error } = await supabase.from('animais').update(payload).eq('id', editing.id))
-      if (error && /Could not find the 'preco_compra' column|PGRST204/.test(error.message + (error.code ?? ''))) {
+      if (error && /Could not find the 'valor_compra' column|PGRST204/.test(error.message + (error.code ?? ''))) {
         const p = { ...payload }
-        delete p.preco_compra
+        delete p.valor_compra
         ;({ error } = await supabase.from('animais').update(p).eq('id', editing.id))
       }
     } else {
       ({ error } = await supabase.from('animais').insert(payload))
-      if (error && /Could not find the 'preco_compra' column|PGRST204/.test(error.message + (error.code ?? ''))) {
+      if (error && /Could not find the 'valor_compra' column|PGRST204/.test(error.message + (error.code ?? ''))) {
         const p = { ...payload }
-        delete p.preco_compra
+        delete p.valor_compra
         ;({ error } = await supabase.from('animais').insert(p))
       }
     }
@@ -592,8 +592,8 @@ export default function RebanhoPage() {
       {loteFilter && loteFilter !== 'sem_lote' && (() => {
         const lot = lotes.find(l => l.id === loteFilter)
         if (!lot) return null
-        const semValor = animais.filter(a => !a.preco_compra).length
-        const totalValor = animais.reduce((s, a) => s + (a.preco_compra ?? 0), 0)
+        const semValor = animais.filter(a => !a.valor_compra).length
+        const totalValor = animais.reduce((s, a) => s + (a.valor_compra ?? 0), 0)
         return (
           <div className="bg-white rounded-xl border border-green-200 p-3 mb-3">
             <div className="flex items-start justify-between gap-3">
@@ -829,7 +829,7 @@ export default function RebanhoPage() {
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Origem *</label>
               <div className="flex gap-2">
-                {ORIGENS.map(o => <button key={o} type="button" onClick={() => setForm(prev => ({ ...prev, origem: o, preco_compra: o === 'compra' ? prev.preco_compra : '' }))}
+                {ORIGENS.map(o => <button key={o} type="button" onClick={() => setForm(prev => ({ ...prev, origem: o, valor_compra: o === 'compra' ? prev.valor_compra : '' }))}
                   className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${form.origem === o ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-600 hover:border-green-300'}`}>
                   {LABELS[o]}
                 </button>)}
@@ -840,8 +840,8 @@ export default function RebanhoPage() {
                 <label className="text-sm font-medium text-gray-700 block mb-1">Preço de compra</label>
                 <Input
                   placeholder="0,00"
-                  value={form.preco_compra}
-                  onChange={e => f('preco_compra', e.target.value)}
+                  value={form.valor_compra}
+                  onChange={e => f('valor_compra', e.target.value)}
                   inputMode="decimal"
                 />
               </div>
@@ -933,7 +933,7 @@ export default function RebanhoPage() {
                 ['Origem', LABELS[detail.origem]],
                 ['Nascimento', fmtDate(detail.data_nascimento)],
                 ['Lote', (detail.lote as any)?.nome ?? '—'],
-                detail.origem === 'compra' && detail.preco_compra ? ['Preço de compra', fmtMoney(detail.preco_compra)] : null,
+                detail.origem === 'compra' && detail.valor_compra ? ['Preço de compra', fmtMoney(detail.valor_compra)] : null,
                 detail.status_reprodutivo ? ['Status reprod.', LABELS[detail.status_reprodutivo] ?? detail.status_reprodutivo] : null,
                 detail.mae?.brinco ? ['Mãe (brinco)', detail.mae.brinco] : null,
                 detail.observacao ? ['Obs', detail.observacao] : null,
@@ -1102,8 +1102,8 @@ export default function RebanhoPage() {
                         <p className="text-sm font-semibold text-gray-900">{a.brinco}</p>
                         <p className="text-xs text-gray-500">{LABELS[a.categoria] ?? a.categoria} · {a.raca}</p>
                       </div>
-                      {a.preco_compra && (
-                        <p className="text-xs text-gray-500 shrink-0">{fmtMoney(a.preco_compra)}</p>
+                      {a.valor_compra && (
+                        <p className="text-xs text-gray-500 shrink-0">{fmtMoney(a.valor_compra)}</p>
                       )}
                     </label>
                   ))}

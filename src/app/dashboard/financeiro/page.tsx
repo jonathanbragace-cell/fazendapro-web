@@ -153,10 +153,11 @@ export default function FinanceiroPage() {
     }
 
     const insertFin = async (p: any) => {
-      let { error } = await supabase.from('financeiro').insert({ ...p, status, data_vencimento: form.pendente && form.data_vencimento ? form.data_vencimento : null })
-      if (error && /status|data_vencimento|lote_id|roca_id|PGRST204/.test(error.message + (error.code ?? ''))) {
-        const { lote_id: _l, roca_id: _r, ...stripped } = p
-        ;({ error } = await supabase.from('financeiro').insert(stripped))
+      const payload = { ...p, status, data_vencimento: form.pendente && form.data_vencimento ? form.data_vencimento : null }
+      let { error } = await supabase.from('financeiro').insert(payload)
+      if (error && /roca_id|PGRST204/.test(error.message + (error.code ?? ''))) {
+        const { roca_id: _r, ...noRoca } = payload
+        ;({ error } = await supabase.from('financeiro').insert(noRoca))
       }
       return error
     }
