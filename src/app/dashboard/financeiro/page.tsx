@@ -11,9 +11,12 @@ type Mov = {
   id: string; tipo: 'entrada' | 'saida'; categoria: string
   valor: number; data: string; descricao: string
   status: 'pago' | 'recebido' | 'pendente'; data_vencimento: string | null
+  lote_id?: string | null; roca_id?: string | null
 }
 type Fazenda = { id: string; nome: string }
 type Cat = { id: string; tipo: string; nome: string }
+type Lote  = { id: string; nome: string }
+type Roca  = { id: string; nome: string }
 type Filter = '' | 'entrada' | 'saida' | 'a_pagar' | 'a_receber'
 
 const SQL_CATS = `CREATE TABLE IF NOT EXISTS financeiro_categorias (
@@ -35,6 +38,8 @@ const hoje = () => new Date().toISOString().split('T')[0]
 export default function FinanceiroPage() {
   const [movs, setMovs]         = useState<Mov[]>([])
   const [fazendas, setFazendas] = useState<Fazenda[]>([])
+  const [lotes, setLotes]       = useState<Lote[]>([])
+  const [rocas, setRocas]       = useState<Roca[]>([])
   const [cats, setCats]         = useState<Cat[]>([])
   const [filter, setFilter]     = useState<Filter>('')
   const [loading, setLoading]   = useState(true)
@@ -53,6 +58,11 @@ export default function FinanceiroPage() {
     fazenda_id: '',
     pendente: false,
     data_vencimento: '',
+    lote_id: '',
+    roca_id: '',
+    ratear: false,
+    rateioLotes: [] as string[],
+    rateioMethod: 'igual' as 'igual' | 'cabeca',
   })
 
   async function carregarCats() {
@@ -66,6 +76,10 @@ export default function FinanceiroPage() {
   async function load() {
     setLoading(true)
     const { data: faz } = await supabase.from('fazendas').select('id, nome').order('nome')
+    const { data: lots } = await supabase.from('lotes').select('id, nome').order('nome')
+    const { data: rocs } = await supabase.from('rocas').select('id, nome').order('nome')
+    setLotes(lots ?? [])
+    setRocas(rocs ?? [])
     await carregarCats()
 
     let q = supabase.from('financeiro').select('*').order('data', { ascending: false }).limit(200)
@@ -132,22 +146,48 @@ export default function FinanceiroPage() {
     const iso = y && m && d ? `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}` : new Date().toISOString().split('T')[0]
     setSaving(true)
     const status = form.pendente ? 'pendente' : (form.tipo === 'entrada' ? 'recebido' : 'pago')
-    const payload: any = {
+    const basePayload: any = {
       fazenda_id: form.fazenda_id || fazendas[0]?.id,
       tipo: form.tipo, categoria: form.categoria,
-      valor: val, data: iso,
-      descricao: form.descricao.trim() || form.categoria,
+      data: iso, descricao: form.descricao.trim() || form.categoria,
     }
 
-    // tenta com status/data_vencimento; se coluna não existir, tenta sem
-    let { error } = await supabase.from('financeiro').insert({ ...payload, status, data_vencimento: form.pendente && form.data_vencimento ? form.data_vencimento : null })
-    if (error && /status|data_vencimento|PGRST204/.test(error.message + (error.code ?? ''))) {
-      ;({ error } = await supabase.from('financeiro').insert(payload))
+    const insertFin = async (p: any) => {
+      let { error } = await supabase.from('financeiro').insert({ ...p, status, data_vencimento: form.pendente && form.data_vencimento ? form.data_vencimento : null })
+      if (error && /status|data_vencimento|lote_id|roca_id|PGRST204/.test(error.message + (error.code ?? ''))) {
+        const { lote_id: _l, roca_id: _r, ...stripped } = p
+        ;({ error } = await supabase.from('financeiro').insert(stripped))
+      }
+      return error
     }
-    if (error) {
-      alert(`Erro ao salvar:\n${error.message}\nCódigo: ${error.code}\n${error.details ?? ''}`)
-      setSaving(false)
-      return
+
+    // Rateio: cria um lançamento por lote selecionado
+    if (form.ratear && form.rateioLotes.length > 0) {
+      let amounts: Record<string, number> = {}
+      if (form.rateioMethod === 'cabeca') {
+        const { data: aCounts } = await supabase.from('animais').select('lote_id').in('lote_id', form.rateioLotes).eq('status', 'ativo')
+        const total = aCounts?.length || 0
+        form.rateioLotes.forEach(lid => {
+          const n = aCounts?.filter((a: any) => a.lote_id === lid).length ?? 0
+          amounts[lid] = total > 0 ? val * (n / total) : val / form.rateioLotes.length
+        })
+      } else {
+        const per = val / form.rateioLotes.length
+        form.rateioLotes.forEach(lid => { amounts[lid] = per })
+      }
+      for (const [lid, amount] of Object.entries(amounts)) {
+        const error = await insertFin({ ...basePayload, valor: Math.round(amount * 100) / 100, lote_id: lid })
+        if (error) { alert(`Erro ao salvar rateio: ${error.message}`); setSaving(false); return }
+      }
+    } else {
+      const loteId = form.lote_id || null
+      const rocaId = form.roca_id || null
+      const error = await insertFin({ ...basePayload, valor: val, lote_id: loteId, roca_id: rocaId })
+      if (error) {
+        alert(`Erro ao salvar:\n${error.message}\nCódigo: ${error.code}\n${error.details ?? ''}`)
+        setSaving(false)
+        return
+      }
     }
     setSaving(false)
     setOpen(false)
@@ -168,7 +208,7 @@ export default function FinanceiroPage() {
 
   function abrirNovo() {
     const p = cats.find(c => c.tipo === 'entrada')
-    setForm({ tipo: 'entrada', categoria: p?.nome ?? '', valor: '', data: new Date().toLocaleDateString('pt-BR'), descricao: '', fazenda_id: fazendas[0]?.id ?? '', pendente: false, data_vencimento: '' })
+    setForm({ tipo: 'entrada', categoria: p?.nome ?? '', valor: '', data: new Date().toLocaleDateString('pt-BR'), descricao: '', fazenda_id: fazendas[0]?.id ?? '', pendente: false, data_vencimento: '', lote_id: '', roca_id: '', ratear: false, rateioLotes: [], rateioMethod: 'igual' })
     setAddingCat(false); setNovaCat(''); setOpen(true)
   }
 
@@ -445,6 +485,79 @@ export default function FinanceiroPage() {
               <label className="text-sm font-medium text-gray-700 block mb-1">Descrição</label>
               <Input placeholder="Opcional" value={form.descricao} onChange={e => setF('descricao', e.target.value)} />
             </div>
+
+            {/* Lote e Roça */}
+            {(lotes.length > 0 || rocas.length > 0) && !form.ratear && (
+              <div className="grid grid-cols-2 gap-3">
+                {lotes.length > 0 && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">Lote</label>
+                    <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={form.lote_id} onChange={e => setF('lote_id', e.target.value)}>
+                      <option value="">Nenhum</option>
+                      {lotes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+                    </select>
+                  </div>
+                )}
+                {rocas.length > 0 && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">Roça</label>
+                    <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={form.roca_id} onChange={e => setF('roca_id', e.target.value)}>
+                      <option value="">Nenhuma</option>
+                      {rocas.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Rateio entre lotes */}
+            {lotes.length > 1 && (
+              <div>
+                <button type="button" onClick={() => setF('ratear', !form.ratear)}
+                  className={`flex items-center gap-2 text-xs font-semibold transition-colors ${form.ratear ? 'text-green-700' : 'text-gray-400 hover:text-gray-700'}`}>
+                  <span className={`w-7 h-3.5 rounded-full transition-colors relative shrink-0 ${form.ratear ? 'bg-green-600' : 'bg-gray-300'}`}>
+                    <span className={`absolute top-0.5 w-2.5 h-2.5 bg-white rounded-full shadow transition-transform ${form.ratear ? 'left-3.5' : 'left-0.5'}`} />
+                  </span>
+                  Ratear entre lotes
+                </button>
+                {form.ratear && (
+                  <div className="mt-2 bg-gray-50 rounded-xl p-3 space-y-2">
+                    <div className="flex gap-2">
+                      {(['igual', 'cabeca'] as const).map(m => (
+                        <button key={m} type="button" onClick={() => setF('rateioMethod', m)}
+                          className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${form.rateioMethod === m ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-600 border-gray-200'}`}>
+                          {m === 'igual' ? 'Igual' : 'Por cabeça'}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="space-y-1 max-h-36 overflow-y-auto">
+                      {lotes.map(l => {
+                        const checked = form.rateioLotes.includes(l.id)
+                        return (
+                          <label key={l.id} className="flex items-center gap-2 cursor-pointer hover:bg-white rounded px-1 py-0.5">
+                            <input type="checkbox" checked={checked}
+                              onChange={e => {
+                                const next = e.target.checked
+                                  ? [...form.rateioLotes, l.id]
+                                  : form.rateioLotes.filter(id => id !== l.id)
+                                setF('rateioLotes', next)
+                              }}
+                              className="rounded border-gray-300" />
+                            <span className="text-xs text-gray-800">{l.nome}</span>
+                            {checked && form.rateioLotes.length > 0 && (() => {
+                              const v = parseFloat(form.valor.replace(',', '.'))
+                              if (!v || isNaN(v)) return null
+                              const per = v / form.rateioLotes.length
+                              return <span className="text-xs text-gray-400 ml-auto">R$ {per.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                            })()}
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="flex gap-3 pt-2">
               <Button variant="outline" className="flex-1" onClick={() => setOpen(false)}>Cancelar</Button>

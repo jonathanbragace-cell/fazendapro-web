@@ -603,6 +603,49 @@ export default function LotesPage() {
               )}
             </div>
 
+            {/* CUSTO TOTAL / CABEÇA */}
+            {selectedOp.qtd_compra > 0 && (
+              <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Custo acumulado</p>
+                <div className="space-y-2">
+                  <div className="flex justify-between items-baseline gap-3">
+                    <span className="text-sm text-gray-600">Compra do lote</span>
+                    <span className="text-sm font-medium text-gray-900">{fmt(selectedOp.valor_total_compra)}</span>
+                  </div>
+                  {custos.length > 0 && custos.reduce((acc, c) => {
+                    acc[c.descricao] = (acc[c.descricao] ?? 0) + c.valor; return acc
+                  }, {} as Record<string, number>) && Object.entries(custos.reduce((acc, c) => {
+                    acc[c.descricao] = (acc[c.descricao] ?? 0) + c.valor; return acc
+                  }, {} as Record<string, number>)).map(([desc, val]) => (
+                    <div key={desc} className="flex justify-between items-baseline gap-3">
+                      <span className="text-sm text-gray-500">{desc}</span>
+                      <span className="text-sm font-medium text-red-600">+ {fmt(val)}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between items-baseline gap-3 pt-2 border-t border-gray-200">
+                    <span className="text-sm font-semibold text-gray-700">Custo total</span>
+                    <span className="text-sm font-bold text-gray-900">{fmt(selectedOp.valor_total_compra + r.totalCustos)}</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                    <p className="text-xs text-gray-500 mb-1">Custo / cabeça</p>
+                    <p className="text-lg font-bold text-gray-900">
+                      {fmt((selectedOp.valor_total_compra + r.totalCustos) / selectedOp.qtd_compra)}
+                    </p>
+                    <p className="text-[10px] text-gray-400">{selectedOp.qtd_compra} cabeças no total</p>
+                  </div>
+                  {r.saldo > 0 && (
+                    <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                      <p className="text-xs text-gray-500 mb-1">Em aberto</p>
+                      <p className="text-lg font-bold text-amber-600">{r.saldo} cab.</p>
+                      <p className="text-[10px] text-gray-400">{fmt((selectedOp.valor_total_compra + r.totalCustos) / selectedOp.qtd_compra * r.saldo)} custo proporcional</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* RESULTADO */}
             {r.qtdVendida > 0 && (
               <div className="bg-gray-50 rounded-2xl border border-gray-200 p-4 mb-3">

@@ -10,21 +10,24 @@ import { Plus, AlertTriangle, Package, Pencil, ArrowUpDown } from 'lucide-react'
 type Item = {
   id: string; fazenda_id: string; produto: string; categoria: string
   quantidade: number; unidade: string; estoque_minimo: number; localizacao?: string
+  valor_unitario?: number | null
 }
 type Fazenda = { id: string; nome: string }
+type Lote    = { id: string; nome: string }
 
 const CATS: Record<string, string> = {
   racao:'Ração', sal:'Sal mineral', medicamento:'Medicamento', vacina:'Vacina', outro:'Outro',
 }
 const UNIDADES = ['kg', 'L', 'un', 'cx', 'sc', 'g', 'mL']
 
-const EMPTY_ITEM = { produto:'', categoria:'racao', quantidade:'', unidade:'kg', estoque_minimo:'', localizacao:'', fazenda_id:'' }
-const EMPTY_MOV  = { item_id:'', tipo:'entrada' as 'entrada'|'saida', qtd:'', motivo:'' }
+const EMPTY_ITEM = { produto:'', categoria:'racao', quantidade:'', unidade:'kg', estoque_minimo:'', localizacao:'', fazenda_id:'', valor_unitario:'' }
+const EMPTY_MOV  = { item_id:'', tipo:'entrada' as 'entrada'|'saida', qtd:'', motivo:'', lote_id:'' }
 
 export default function EstoquePage() {
   const supabase = createClient()
   const [itens, setItens] = useState<Item[]>([])
   const [fazendas, setFazendas] = useState<Fazenda[]>([])
+  const [lotes, setLotes] = useState<Lote[]>([])
   const [loading, setLoading] = useState(true)
   const [openItem, setOpenItem] = useState(false)
   const [openMov, setOpenMov] = useState(false)
@@ -36,8 +39,10 @@ export default function EstoquePage() {
   async function load() {
     setLoading(true)
     const { data: faz } = await supabase.from('fazendas').select('id, nome').order('nome')
+    const { data: lots } = await supabase.from('lotes').select('id, nome').order('nome')
     const { data } = await supabase.from('estoque').select('*').order('produto')
     setFazendas(faz ?? [])
+    setLotes(lots ?? [])
     setItens(data ?? [])
     setLoading(false)
   }
@@ -53,7 +58,8 @@ export default function EstoquePage() {
     setEditing(i)
     setForm({ produto: i.produto, categoria: i.categoria, quantidade: String(i.quantidade),
       unidade: i.unidade, estoque_minimo: String(i.estoque_minimo),
-      localizacao: i.localizacao ?? '', fazenda_id: i.fazenda_id })
+      localizacao: i.localizacao ?? '', fazenda_id: i.fazenda_id,
+      valor_unitario: i.valor_unitario ? String(i.valor_unitario) : '' })
     setOpenItem(true)
   }
 
@@ -67,11 +73,17 @@ export default function EstoquePage() {
       produto: form.produto.trim(), categoria: form.categoria,
       quantidade: qtd, unidade: form.unidade, estoque_minimo: isNaN(min) ? 0 : min,
       localizacao: form.localizacao.trim() || null,
+      valor_unitario: form.valor_unitario ? parseFloat(form.valor_unitario.replace(',', '.')) : null,
     }
-    if (editing) {
-      await supabase.from('estoque').update(payload).eq('id', editing.id)
-    } else {
-      await supabase.from('estoque').insert(payload)
+    // valor_unitario graceful fallback if column doesn't exist
+    const doSave = async (p: any) => {
+      if (editing) return supabase.from('estoque').update(p).eq('id', editing.id)
+      return supabase.from('estoque').insert(p)
+    }
+    let { error: saveErr } = await doSave(payload)
+    if (saveErr && /valor_unitario|PGRST204/.test(saveErr.message + (saveErr.code ?? ''))) {
+      const { valor_unitario: _, ...noUnit } = payload
+      await doSave(noUnit)
     }
     setSaving(false)
     setOpenItem(false)
@@ -95,10 +107,29 @@ export default function EstoquePage() {
     setSaving(true)
     const novaQtd = mov.tipo === 'entrada' ? item.quantidade + qtd : item.quantidade - qtd
     await supabase.from('estoque').update({ quantidade: novaQtd }).eq('id', item.id)
-    await supabase.from('movimentos_estoque').insert({
+    const hoje = new Date().toISOString().split('T')[0]
+    const movPayload: any = {
       estoque_id: item.id, tipo: mov.tipo, quantidade: qtd,
-      data: new Date().toISOString().split('T')[0], motivo: mov.motivo.trim() || null,
-    })
+      data: hoje, motivo: mov.motivo.trim() || null, lote_id: mov.lote_id || null,
+    }
+    let { error: mErr } = await supabase.from('movimentos_estoque').insert(movPayload)
+    if (mErr && /lote_id|PGRST204/.test(mErr.message + (mErr.code ?? ''))) {
+      const { lote_id: _, ...noLote } = movPayload
+      await supabase.from('movimentos_estoque').insert(noLote)
+    }
+    // Se saída com lote e produto tem valor unitário, lança custo no financeiro
+    if (mov.tipo === 'saida' && mov.lote_id && item.valor_unitario) {
+      const custo = qtd * item.valor_unitario
+      const finPayload: any = {
+        fazenda_id: item.fazenda_id, tipo: 'saida', categoria: 'Custo estoque',
+        valor: custo, data: hoje, lote_id: mov.lote_id,
+        descricao: `${item.produto} — ${qtd} ${item.unidade}`,
+      }
+      let { error: fErr } = await supabase.from('financeiro').insert({ ...finPayload, status: 'pago' })
+      if (fErr && /status|lote_id|PGRST204/.test(fErr.message + (fErr.code ?? ''))) {
+        await supabase.from('financeiro').insert(finPayload)
+      }
+    }
     setSaving(false)
     setOpenMov(false)
     load()
@@ -218,6 +249,10 @@ export default function EstoquePage() {
               <Input placeholder="0" value={form.estoque_minimo} onChange={e => setF('estoque_minimo', e.target.value)} />
             </div>
             <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">Valor unitário (R$)</label>
+              <Input type="number" placeholder="Custo por unidade — opcional" value={form.valor_unitario} onChange={e => setF('valor_unitario', e.target.value)} />
+            </div>
+            <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Localização</label>
               <Input placeholder="Ex: Depósito A" value={form.localizacao} onChange={e => setF('localizacao', e.target.value)} />
             </div>
@@ -255,6 +290,24 @@ export default function EstoquePage() {
               <label className="text-sm font-medium text-gray-700 block mb-1">Motivo</label>
               <Input placeholder="Opcional" value={mov.motivo} onChange={e => setM('motivo', e.target.value)} />
             </div>
+            {mov.tipo === 'saida' && lotes.length > 0 && (
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Vincular ao lote (opcional)</label>
+                <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={mov.lote_id} onChange={e => setM('lote_id', e.target.value)}>
+                  <option value="">Sem lote</option>
+                  {lotes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+                </select>
+                {mov.lote_id && (() => {
+                  const item = itens.find(i => i.id === mov.item_id)
+                  const qtd = parseFloat(mov.qtd.replace(',', '.'))
+                  if (item?.valor_unitario && qtd > 0) {
+                    const custo = qtd * item.valor_unitario
+                    return <p className="text-xs text-gray-500 mt-1">Custo a apropriar: R$ {custo.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                  }
+                  return null
+                })()}
+              </div>
+            )}
             <div className="flex gap-3 pt-2">
               <Button variant="outline" className="flex-1" onClick={() => setOpenMov(false)}>Cancelar</Button>
               <Button className="flex-1 bg-green-700 hover:bg-green-800 text-white" onClick={handleSaveMov} disabled={saving}>
