@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Plus, ChevronLeft, Trash2 } from 'lucide-react'
+import { Plus, ChevronLeft, Trash2, Pencil } from 'lucide-react'
 
 const supabase = createClient()
 
@@ -174,11 +174,13 @@ export default function LotesPage() {
   const [openNewOp, setOpenNewOp] = useState(false)
   const [openVenda, setOpenVenda] = useState(false)
   const [openCusto, setOpenCusto] = useState(false)
+  const [openEditOp, setOpenEditOp] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const [formOp, setFormOp] = useState({ ...EMPTY_OP })
   const [formVenda, setFormVenda] = useState({ ...EMPTY_VENDA })
   const [formCusto, setFormCusto] = useState({ ...EMPTY_CUSTO })
+  const [formEditOp, setFormEditOp] = useState({ ...EMPTY_OP })
 
   async function load() {
     setLoading(true)
@@ -222,6 +224,24 @@ export default function LotesPage() {
   function fOp(k: string, v: string) { setFormOp(p => ({ ...p, [k]: v })) }
   function fVenda(k: string, v: string) { setFormVenda(p => ({ ...p, [k]: v })) }
   function fCusto(k: string, v: string) { setFormCusto(p => ({ ...p, [k]: v })) }
+  function fEditOp(k: string, v: string) { setFormEditOp(p => ({ ...p, [k]: v })) }
+
+  function openEdit() {
+    if (!selectedOp) return
+    setFormEditOp({
+      nome: selectedOp.nome,
+      fazenda_id: selectedOp.fazenda_id ?? '',
+      data_compra: selectedOp.data_compra,
+      vendedor: selectedOp.vendedor,
+      qtd_compra: String(selectedOp.qtd_compra),
+      categoria: selectedOp.categoria,
+      peso_total_compra: selectedOp.peso_total_compra ? String(selectedOp.peso_total_compra) : '',
+      forma_compra: selectedOp.forma_compra,
+      valor_unit_compra: selectedOp.valor_unit_compra ? String(selectedOp.valor_unit_compra) : '',
+      valor_total_compra: String(selectedOp.valor_total_compra),
+    })
+    setOpenEditOp(true)
+  }
 
   async function insertFinanceiro(payload: Record<string, unknown>) {
     let { error } = await supabase.from('financeiro').insert({
@@ -357,6 +377,43 @@ export default function LotesPage() {
     load()
   }
 
+  async function salvarEditOperacao() {
+    if (!selectedOp) return
+    if (!formEditOp.nome.trim()) { alert('Nome é obrigatório.'); return }
+    setSaving(true)
+    const payload = {
+      nome: formEditOp.nome.trim(),
+      vendedor: formEditOp.vendedor.trim(),
+      data_compra: formEditOp.data_compra,
+      qtd_compra: parseInt(formEditOp.qtd_compra) || selectedOp.qtd_compra,
+      categoria: formEditOp.categoria,
+      peso_total_compra: formEditOp.peso_total_compra ? num(formEditOp.peso_total_compra) : null,
+      forma_compra: formEditOp.forma_compra,
+      valor_unit_compra: formEditOp.valor_unit_compra ? num(formEditOp.valor_unit_compra) : null,
+      valor_total_compra: num(formEditOp.valor_total_compra) || selectedOp.valor_total_compra,
+    }
+    const { error } = await supabase.from('operacoes_comerciais').update(payload).eq('id', selectedOp.id)
+    if (!error) {
+      setSelectedOp(prev => prev ? { ...prev, ...payload } : prev)
+      setOpenEditOp(false)
+      load()
+    } else {
+      alert(`Erro: ${error.message}`)
+    }
+    setSaving(false)
+  }
+
+  async function encerrarManual() {
+    if (!selectedOp) return
+    if (!confirm('Encerrar esta operação manualmente? Ela será marcada como finalizada.')) return
+    const { error } = await supabase.from('operacoes_comerciais').update({ status: 'encerrada' }).eq('id', selectedOp.id)
+    if (!error) {
+      setSelectedOp(prev => prev ? { ...prev, status: 'encerrada' } : prev)
+    } else {
+      alert(`Erro: ${error.message}`)
+    }
+  }
+
   // ── SETUP SQL ──
   if (setupSql) {
     return (
@@ -395,9 +452,27 @@ export default function LotesPage() {
           }`}>
             {selectedOp.status === 'em_aberto' ? 'Em aberto' : 'Encerrada'}
           </span>
+          <button
+            onClick={openEdit}
+            className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-600 shrink-0"
+          >
+            <Pencil size={16} />
+          </button>
         </div>
 
         {loadingDetail && <p className="text-sm text-gray-400 text-center py-12">Carregando...</p>}
+
+        {!loadingDetail && !selectedOp.valor_unit_compra && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 flex items-center justify-between gap-3">
+            <p className="text-sm text-amber-700">Valor unitário de compra não informado — custo por cabeça pode estar impreciso.</p>
+            <button
+              onClick={openEdit}
+              className="shrink-0 text-xs font-semibold text-amber-700 border border-amber-300 rounded-lg px-2.5 py-1 hover:bg-amber-100 transition-colors whitespace-nowrap"
+            >
+              Informar
+            </button>
+          </div>
+        )}
 
         {!loadingDetail && (
           <>
@@ -428,7 +503,15 @@ export default function LotesPage() {
                   </p>
                 </div>
               )}
-              <div className="mt-3 pt-3 border-t border-gray-100">
+              <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-4">
+                {selectedOp.status === 'em_aberto' && (
+                  <button
+                    onClick={encerrarManual}
+                    className="text-xs text-amber-600 hover:text-amber-800 transition-colors font-medium"
+                  >
+                    Encerrar operação
+                  </button>
+                )}
                 <button
                   onClick={() => excluirOperacao(selectedOp.id, selectedOp.nome)}
                   className="text-xs text-red-400 hover:text-red-600 transition-colors"
@@ -649,6 +732,69 @@ export default function LotesPage() {
               </Field>
               <Button className="w-full bg-green-700 hover:bg-green-800" onClick={salvarCusto} disabled={saving}>
                 {saving ? 'Salvando...' : 'Salvar Custo'}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog: Editar Operação */}
+        <Dialog open={openEditOp} onOpenChange={setOpenEditOp}>
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Editar Operação</DialogTitle></DialogHeader>
+            <div className="space-y-3 pt-2">
+              <Field label="Nome da operação">
+                <Input placeholder="Ex: Cícero - 15/09/2026"
+                  value={formEditOp.nome} onChange={e => fEditOp('nome', e.target.value)} />
+              </Field>
+              {fazendas.length > 1 && (
+                <Field label="Fazenda">
+                  <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                    value={formEditOp.fazenda_id} onChange={e => fEditOp('fazenda_id', e.target.value)}>
+                    {fazendas.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                  </select>
+                </Field>
+              )}
+              <div className="bg-gray-50 rounded-xl p-3 space-y-3">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Dados da compra</p>
+                <Field label="Vendedor (quem me vendeu)">
+                  <Input placeholder="Nome do fornecedor"
+                    value={formEditOp.vendedor} onChange={e => fEditOp('vendedor', e.target.value)} />
+                </Field>
+                <Field label="Data da compra">
+                  <Input type="date" value={formEditOp.data_compra}
+                    onChange={e => fEditOp('data_compra', e.target.value)} />
+                </Field>
+                <Field label="Quantidade de cabeças">
+                  <Input type="number" min={1} placeholder="Ex: 30"
+                    value={formEditOp.qtd_compra} onChange={e => fEditOp('qtd_compra', e.target.value)} />
+                </Field>
+                <Field label="Categoria predominante">
+                  <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                    value={formEditOp.categoria} onChange={e => fEditOp('categoria', e.target.value)}>
+                    {CATEGORIAS.map(c => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
+                  </select>
+                </Field>
+                <Field label="Peso total de compra (kg)">
+                  <Input type="number" placeholder="Opcional"
+                    value={formEditOp.peso_total_compra} onChange={e => fEditOp('peso_total_compra', e.target.value)} />
+                </Field>
+                <Field label="Forma de compra">
+                  <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                    value={formEditOp.forma_compra} onChange={e => fEditOp('forma_compra', e.target.value)}>
+                    {FORMAS.map(f => <option key={f} value={f}>{FORMA_NOME[f]}</option>)}
+                  </select>
+                </Field>
+                <Field label="Valor unitário">
+                  <Input type="number" placeholder={`R$ por ${FORMA_LABEL[formEditOp.forma_compra]}`}
+                    value={formEditOp.valor_unit_compra} onChange={e => fEditOp('valor_unit_compra', e.target.value)} />
+                </Field>
+                <Field label="Valor total da compra">
+                  <Input type="number" placeholder="R$"
+                    value={formEditOp.valor_total_compra} onChange={e => fEditOp('valor_total_compra', e.target.value)} />
+                </Field>
+              </div>
+              <Button className="w-full bg-green-700 hover:bg-green-800" onClick={salvarEditOperacao} disabled={saving}>
+                {saving ? 'Salvando...' : 'Salvar alterações'}
               </Button>
             </div>
           </DialogContent>

@@ -367,7 +367,12 @@ export default function RebanhoPage() {
       {/* Busca */}
       <div className="relative mb-3">
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <Input placeholder="Buscar brinco..." className="pl-9 w-full" value={search} onChange={e => setSearch(e.target.value)} />
+        <Input placeholder="Buscar brinco..." className={`pl-9 w-full ${search ? 'pr-8' : ''}`} value={search} onChange={e => setSearch(e.target.value)} />
+        {search && (
+          <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded transition-colors">
+            <X size={14} />
+          </button>
+        )}
       </div>
 
       {/* Filtros — scroll horizontal no mobile */}
