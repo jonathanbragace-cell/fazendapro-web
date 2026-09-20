@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ChevronLeft, Pencil, Plus, Trash2 } from 'lucide-react'
+import { ChevronLeft, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 
 const supabase = createClient()
 
@@ -86,6 +86,15 @@ export default function LotesPage() {
   const [openEdit, setOpenEdit] = useState(false)
   const [saving, setSaving]     = useState(false)
   const [form, setForm]         = useState({ ...EMPTY_LOTE })
+
+  // Add animals dialog
+  const [openAdd, setOpenAdd]         = useState(false)
+  const [addSearch, setAddSearch]     = useState('')
+  const [addCatFilter, setAddCatFilter] = useState('')
+  const [availAnimais, setAvailAnimais] = useState<Animal[]>([])
+  const [addIds, setAddIds]           = useState<Set<string>>(new Set())
+  const [savingAdd, setSavingAdd]     = useState(false)
+  const [loadingAvail, setLoadingAvail] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -215,6 +224,43 @@ export default function LotesPage() {
     setSaving(false)
   }
 
+  async function refreshAnimais(loteId: string) {
+    const { data } = await supabase
+      .from('animais').select('id, brinco, nome, categoria, sexo, raca')
+      .eq('lote_id', loteId).eq('status', 'ativo').order('brinco')
+    setAnimais(data ?? [])
+  }
+
+  async function loadAvailAnimais(search: string, cat: string) {
+    setLoadingAvail(true)
+    let q = supabase.from('animais')
+      .select('id, brinco, nome, categoria, sexo, raca')
+      .eq('status', 'ativo').order('brinco').limit(60)
+    if (search) q = q.ilike('brinco', `%${search}%`)
+    if (cat) q = q.eq('categoria', cat)
+    const { data } = await q
+    setAvailAnimais(data ?? [])
+    setLoadingAvail(false)
+  }
+
+  async function handleAddAnimais() {
+    if (!selected || addIds.size === 0) return
+    setSavingAdd(true)
+    await supabase.from('animais').update({ lote_id: selected.id } as any).in('id', [...addIds])
+    setSavingAdd(false)
+    setOpenAdd(false)
+    setAddIds(new Set())
+    await refreshAnimais(selected.id)
+    load()
+  }
+
+  async function handleRemoverAnimal(animalId: string) {
+    if (!confirm('Remover este animal do lote?')) return
+    await supabase.from('animais').update({ lote_id: null } as any).eq('id', animalId)
+    setAnimais(prev => prev.filter(a => a.id !== animalId))
+    load()
+  }
+
   async function excluirLote() {
     if (!selected) return
     if (!confirm(`Excluir "${selected.nome}"? Os animais neste lote ficam sem lote.`)) return
@@ -313,6 +359,15 @@ export default function LotesPage() {
                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
                   Animais {animais.length > 0 ? `(${animais.length})` : ''}
                 </p>
+                <button
+                  onClick={() => {
+                    setAddSearch(''); setAddCatFilter(''); setAvailAnimais([]); setAddIds(new Set())
+                    setOpenAdd(true); loadAvailAnimais('', '')
+                  }}
+                  className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
+                >
+                  <Plus size={12} /> Adicionar
+                </button>
               </div>
               {animais.length === 0 && (
                 <p className="text-sm text-gray-400">Nenhum animal neste lote.</p>
@@ -330,6 +385,13 @@ export default function LotesPage() {
                     <span className="text-xs text-gray-500">{CAT_LABEL[a.categoria] ?? a.categoria}</span>
                     <span className="text-xs text-gray-400">{a.sexo === 'femea' ? 'Fêmea' : 'Macho'}</span>
                     <span className="text-xs text-gray-400">{a.raca}</span>
+                    <button
+                      onClick={() => handleRemoverAnimal(a.id)}
+                      title="Remover do lote"
+                      className="p-1 text-gray-300 hover:text-red-400 transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -368,6 +430,71 @@ export default function LotesPage() {
             </div>
           </>
         )}
+
+        {/* Dialog: Adicionar animais */}
+        <Dialog open={openAdd} onOpenChange={setOpenAdd}>
+          <DialogContent className="max-h-[85vh] overflow-y-auto w-full max-w-md">
+            <DialogHeader>
+              <DialogTitle>Adicionar ao lote — {selected?.nome}</DialogTitle>
+            </DialogHeader>
+            <div className="pt-1 space-y-3">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Input
+                  placeholder="Buscar brinco..."
+                  className="pl-9"
+                  value={addSearch}
+                  onChange={e => { setAddSearch(e.target.value); loadAvailAnimais(e.target.value, addCatFilter) }}
+                />
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {(['', 'matriz', 'bezerro', 'novilha', 'touro', 'boi'] as const).map(c => (
+                  <button key={c} onClick={() => { setAddCatFilter(c); loadAvailAnimais(addSearch, c) }}
+                    className={`h-[34px] px-3 rounded-full text-xs font-semibold transition-colors ${addCatFilter === c ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                    {c ? (CAT_LABEL[c] ?? c) : 'Todos'}
+                  </button>
+                ))}
+              </div>
+              {loadingAvail && <p className="text-xs text-gray-400 text-center py-4">Carregando...</p>}
+              {!loadingAvail && availAnimais.length === 0 && (
+                <p className="text-xs text-gray-400 text-center py-4">Nenhum animal encontrado.</p>
+              )}
+              {!loadingAvail && availAnimais.length > 0 && (
+                <div className="border border-gray-200 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
+                  {availAnimais.map((a, i) => {
+                    const jaNoLote = animais.some(x => x.id === a.id)
+                    return (
+                      <label key={a.id}
+                        className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 ${i > 0 ? 'border-t border-gray-100' : ''} ${jaNoLote ? 'opacity-40' : ''}`}>
+                        <input type="checkbox" checked={addIds.has(a.id) || jaNoLote} disabled={jaNoLote}
+                          onChange={e => setAddIds(prev => {
+                            const next = new Set(prev)
+                            e.target.checked ? next.add(a.id) : next.delete(a.id)
+                            return next
+                          })}
+                          className="rounded border-gray-300 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-900">{a.brinco}</p>
+                          <p className="text-xs text-gray-500">
+                            {CAT_LABEL[a.categoria] ?? a.categoria} · {a.sexo === 'femea' ? 'Fêmea' : 'Macho'}
+                            {jaNoLote && ' · já neste lote'}
+                          </p>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+              <div className="flex gap-2 pt-1">
+                <Button variant="outline" className="flex-1" onClick={() => setOpenAdd(false)}>Cancelar</Button>
+                <Button className="flex-1 bg-green-700 hover:bg-green-800" onClick={handleAddAnimais}
+                  disabled={savingAdd || addIds.size === 0}>
+                  {savingAdd ? 'Adicionando...' : `Adicionar${addIds.size > 0 ? ` (${addIds.size})` : ''}`}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Dialog editar */}
         <Dialog open={openEdit} onOpenChange={setOpenEdit}>
