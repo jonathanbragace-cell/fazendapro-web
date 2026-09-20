@@ -17,10 +17,9 @@ type Registro = {
   animal?: { id: string; brinco: string; nome?: string | null } | null
   lote?: { nome: string } | null
 }
-type Animal   = { id: string; brinco: string; nome?: string | null; categoria?: string; lote_id?: string | null; roca_id?: string | null }
+type Animal   = { id: string; brinco: string; nome?: string | null; categoria?: string; lote_id?: string | null }
 type Fazenda  = { id: string; nome: string }
 type Lote     = { id: string; nome: string }
-type Roca     = { id: string; nome: string }
 type Calendario = {
   id: string; nome: string; tipo: string; produto: string
   categoria_animal: string | null; periodicidade_meses: number | null
@@ -59,7 +58,6 @@ export default function SanitarioPage() {
   const [calendario, setCalendario] = useState<Calendario[]>([])
   const [fazendas, setFazendas]  = useState<Fazenda[]>([])
   const [lotes, setLotes]        = useState<Lote[]>([])
-  const [rocas, setRocas]        = useState<Roca[]>([])
   const [loading, setLoading]    = useState(true)
   const [tipoFilter, setTipoFilter] = useState('')
 
@@ -82,7 +80,7 @@ export default function SanitarioPage() {
   })
 
   // Aplicar em lote
-  const [filtroTipo, setFiltroTipo]   = useState<'lote' | 'categoria' | 'roca' | 'manual'>('categoria')
+  const [filtroTipo, setFiltroTipo]   = useState<'lote' | 'categoria' | 'manual'>('categoria')
   const [filtroValor, setFiltroValor] = useState('')
   const [animaisLote, setAnimaisLote] = useState<Animal[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -97,14 +95,12 @@ export default function SanitarioPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: faz }, { data: lots }, { data: rocs }] = await Promise.all([
+    const [{ data: faz }, { data: lots }] = await Promise.all([
       supabase.from('fazendas').select('id, nome').order('nome'),
       supabase.from('lotes').select('id, nome').order('nome'),
-      supabase.from('rocas').select('id, nome').order('nome'),
     ])
     setFazendas(faz ?? [])
     setLotes(lots ?? [])
-    setRocas(rocs ?? [])
 
     let q = supabase.from('sanitario')
       .select('id, tipo, produto, dose, via, data_aplicacao, proxima_aplicacao, responsavel, animal:animais(id, brinco, nome), lote:lotes(nome)')
@@ -160,10 +156,9 @@ export default function SanitarioPage() {
   async function carregarAnimaisLote() {
     if (!filtroValor && filtroTipo !== 'manual') { setAnimaisLote([]); return }
     setLoadingLote(true)
-    let q = supabase.from('animais').select('id, brinco, nome, categoria, lote_id, roca_id')
+    let q = supabase.from('animais').select('id, brinco, nome, categoria, lote_id')
       .eq('status', 'ativo').order('brinco')
     if (filtroTipo === 'lote')       q = (q as any).eq('lote_id', filtroValor)
-    else if (filtroTipo === 'roca')  q = (q as any).eq('roca_id', filtroValor)
     else if (filtroTipo === 'categoria') q = q.eq('categoria', filtroValor)
     const { data } = await q
     setAnimaisLote(data ?? [])
@@ -534,7 +529,6 @@ export default function SanitarioPage() {
               {([
                 ['categoria', 'Por categoria'],
                 ['lote', 'Por lote'],
-                ['roca', 'Por roça'],
                 ['manual', 'Manual'],
               ] as const).map(([v, l]) => (
                 <button key={v} onClick={() => { setFiltroTipo(v); setFiltroValor(''); setAnimaisLote([]); setSelectedIds(new Set()) }}
@@ -565,16 +559,6 @@ export default function SanitarioPage() {
               >
                 <option value="">— escolha o lote —</option>
                 {lotes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-              </select>
-            )}
-            {filtroTipo === 'roca' && (
-              <select
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-2"
-                value={filtroValor}
-                onChange={e => setFiltroValor(e.target.value)}
-              >
-                <option value="">— escolha a roça —</option>
-                {rocas.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
               </select>
             )}
             {filtroTipo === 'manual' && (

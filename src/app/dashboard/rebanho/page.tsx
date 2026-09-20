@@ -19,7 +19,6 @@ type Animal = {
 }
 type Fazenda = { id: string; nome: string }
 type Lote    = { id: string; nome: string }
-type Roca    = { id: string; nome: string }
 
 const CATS          = ['matriz', 'bezerro', 'novilha', 'touro', 'boi']
 const SEXOS         = ['femea', 'macho']
@@ -69,9 +68,7 @@ export default function RebanhoPage() {
   const [perdaCount, setPerdaCount] = useState(0)
   const [atencaoCount, setAtencaoCount] = useState(0)
   const [novaRaca, setNovaRaca] = useState('')
-  const [rocas, setRocas] = useState<Roca[]>([])
   const [loteFilter, setLoteFilter] = useState<string>('')
-  const [rocaFilter, setRocaFilter] = useState<string>('')
   const [openAddLote, setOpenAddLote] = useState(false)
   const [availAnimals, setAvailAnimals] = useState<Animal[]>([])
   const [addIds, setAddIds] = useState<Set<string>>(new Set())
@@ -86,7 +83,6 @@ export default function RebanhoPage() {
   const [bulkOpen, setBulkOpen] = useState(false)
   const [bulkAction, setBulkAction] = useState('')
   const [bulkLoteId, setBulkLoteId] = useState('')
-  const [bulkRocaId, setBulkRocaId] = useState('')
   const [bulkPeso, setBulkPeso] = useState('')
   const [bulkPesoData, setBulkPesoData] = useState('')
   const [bulkSanitario, setBulkSanitario] = useState({ produto: '', data: '', proxima: '', via: 'injetavel' })
@@ -119,8 +115,6 @@ export default function RebanhoPage() {
     setLoading(true)
     const { data: faz } = await supabase.from('fazendas').select('id, nome').order('nome')
     const { data: lots } = await supabase.from('lotes').select('id, nome, fazenda_id').order('nome')
-    const { data: rocasDb2 } = await supabase.from('rocas').select('id, nome').order('nome')
-    setRocas(rocasDb2 ?? [])
     const { data: racasDb } = await supabase.from('racas').select('nome').order('nome')
     if (racasDb && racasDb.length > 0) setRacas(racasDb.map(r => r.nome))
     else setRacas(DEFAULT_RACAS)
@@ -172,17 +166,7 @@ export default function RebanhoPage() {
     } else if (loteFilter) {
       q = q.eq('lote_id', loteFilter)
     }
-    if (rocaFilter === 'sem_roca') {
-      q = (q as any).is('roca_id', null)
-    } else if (rocaFilter) {
-      q = (q as any).eq('roca_id', rocaFilter)
-    }
-    let { data: anim, error: qErr } = await q
-    if (qErr && /roca_id|PGRST204/.test(qErr.message + (qErr.code ?? ''))) {
-      setRocaFilter('')
-      const { data: anim2 } = await supabase.from('animais').select('*, lote:lotes(id, nome), mae:animais!mae_id(id, brinco)').order('brinco').eq('status', 'ativo')
-      anim = anim2
-    }
+    const { data: anim } = await q
     const sorted = (anim ?? []).sort((a, b) => {
       const na = parseInt(a.brinco.replace(/\D/g, '')) || 0
       const nb = parseInt(b.brinco.replace(/\D/g, '')) || 0
@@ -194,7 +178,7 @@ export default function RebanhoPage() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [catFilter, reproFilter, sexoFilter, loteFilter, rocaFilter])
+  useEffect(() => { load() }, [catFilter, reproFilter, sexoFilter, loteFilter])
   useEffect(() => {
     const t = setTimeout(() => load(), 350)
     return () => clearTimeout(t)
@@ -411,7 +395,6 @@ export default function RebanhoPage() {
     if (action === 'pesagem') { setBulkPeso(''); setBulkPesoData(hoje) }
     if (action === 'sanitario') setBulkSanitario({ produto: '', data: hoje, proxima: '', via: 'injetavel' })
     if (action === 'lote') setBulkLoteId('')
-    if (action === 'roca') setBulkRocaId('')
     setBulkAction(action)
     setBulkOpen(true)
   }
@@ -423,9 +406,6 @@ export default function RebanhoPage() {
     switch (bulkAction) {
       case 'lote':
         await supabase.from('animais').update({ lote_id: bulkLoteId || null }).in('id', ids)
-        break
-      case 'roca':
-        await (supabase.from('animais') as any).update({ roca_id: bulkRocaId || null }).in('id', ids)
         break
       case 'descarte':
         await supabase.from('animais').update({ marcacao: 'descarte' } as any).in('id', ids)
@@ -568,26 +548,6 @@ export default function RebanhoPage() {
         </div>
       )}
 
-      {/* Filtro por roça */}
-      {rocas.length > 0 && (
-        <div className="flex gap-2 mb-3 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 scrollbar-none">
-          <button onClick={() => setRocaFilter('')}
-            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${rocaFilter === '' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-500 border-gray-200'}`}>
-            Toda roça
-          </button>
-          <button onClick={() => setRocaFilter('sem_roca')}
-            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${rocaFilter === 'sem_roca' ? 'bg-gray-600 text-white border-gray-600' : 'bg-white text-gray-500 border-gray-200'}`}>
-            Sem roça
-          </button>
-          {rocas.map(r => (
-            <button key={r.id} onClick={() => setRocaFilter(r.id)}
-              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${rocaFilter === r.id ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-500 border-gray-200'}`}>
-              {r.nome}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Detalhe do lote selecionado */}
       {loteFilter && loteFilter !== 'sem_lote' && (() => {
         const lot = lotes.find(l => l.id === loteFilter)
@@ -629,11 +589,6 @@ export default function RebanhoPage() {
             {lotes.length > 0 && (
               <button onClick={() => openBulk('lote')} className="px-2.5 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 whitespace-nowrap transition-colors">
                 Mover para lote
-              </button>
-            )}
-            {rocas.length > 0 && (
-              <button onClick={() => openBulk('roca')} className="px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 whitespace-nowrap transition-colors">
-                Mover para roça
               </button>
             )}
             <button onClick={() => openBulk('descarte')} className="px-2.5 py-1 rounded-full text-xs font-medium bg-orange-50 text-orange-700 border border-orange-200 hover:bg-orange-100 whitespace-nowrap transition-colors">
@@ -989,7 +944,6 @@ export default function RebanhoPage() {
           <DialogHeader>
             <DialogTitle>
               {bulkAction === 'lote' && 'Mover para lote'}
-              {bulkAction === 'roca' && 'Mover para roça'}
               {bulkAction === 'descarte' && 'Marcar como descarte'}
               {bulkAction === 'undescarte' && 'Remover marcação descarte'}
               {bulkAction === 'atencao' && 'Marcar como atenção'}
@@ -1009,16 +963,6 @@ export default function RebanhoPage() {
                 <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={bulkLoteId} onChange={e => setBulkLoteId(e.target.value)}>
                   <option value="">Remover do lote (sem lote)</option>
                   {lotes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-                </select>
-              </div>
-            )}
-
-            {bulkAction === 'roca' && (
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">Roça de destino</label>
-                <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={bulkRocaId} onChange={e => setBulkRocaId(e.target.value)}>
-                  <option value="">Remover da roça (sem roça)</option>
-                  {rocas.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
                 </select>
               </div>
             )}

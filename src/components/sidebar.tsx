@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, GitFork, Scale, Heart, ShieldPlus,
-  Wallet, Package, BarChart3, LogOut, Menu, X, Leaf, Users, Droplets, Tag, ChevronDown, Check,
+  Wallet, Package, BarChart3, LogOut, Menu, X, Users, Droplets, Tag, ChevronDown, Check,
 } from 'lucide-react'
 import { useState, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
@@ -15,8 +15,7 @@ type Fazenda = { id: string; nome: string }
 const ALL_NAV = [
   { href: '/dashboard',            label: 'Início',     icon: LayoutDashboard, cargos: ['admin','gerente','vaqueiro'] },
   { href: '/dashboard/rebanho',    label: 'Rebanho',    icon: GitFork,          cargos: ['admin','gerente','vaqueiro'] },
-  { href: '/dashboard/rocas',      label: 'Roças',      icon: Leaf,             cargos: ['admin','gerente','vaqueiro'] },
-  { href: '/dashboard/irrigacao',  label: 'Irrigação',  icon: Droplets,         cargos: ['admin','gerente'] },
+{ href: '/dashboard/irrigacao',  label: 'Irrigação',  icon: Droplets,         cargos: ['admin','gerente'] },
   { href: '/dashboard/pesagem',    label: 'Pesagem',    icon: Scale,            cargos: ['admin','gerente','vaqueiro'] },
   { href: '/dashboard/reproducao', label: 'Reprodução', icon: Heart,            cargos: ['admin','gerente'] },
   { href: '/dashboard/sanitario',  label: 'Sanitário',  icon: ShieldPlus,       cargos: ['admin','gerente','vaqueiro'] },

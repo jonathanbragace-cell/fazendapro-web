@@ -11,12 +11,11 @@ type Mov = {
   id: string; tipo: 'entrada' | 'saida'; categoria: string
   valor: number; data: string; descricao: string
   status: 'pago' | 'recebido' | 'pendente'; data_vencimento: string | null
-  lote_id?: string | null; roca_id?: string | null
+  lote_id?: string | null
 }
 type Fazenda = { id: string; nome: string }
 type Cat = { id: string; tipo: string; nome: string }
 type Lote  = { id: string; nome: string }
-type Roca  = { id: string; nome: string }
 type Filter = '' | 'entrada' | 'saida' | 'a_pagar' | 'a_receber'
 
 const SQL_CATS = `CREATE TABLE IF NOT EXISTS financeiro_categorias (
@@ -39,7 +38,6 @@ export default function FinanceiroPage() {
   const [movs, setMovs]         = useState<Mov[]>([])
   const [fazendas, setFazendas] = useState<Fazenda[]>([])
   const [lotes, setLotes]       = useState<Lote[]>([])
-  const [rocas, setRocas]       = useState<Roca[]>([])
   const [cats, setCats]         = useState<Cat[]>([])
   const [filter, setFilter]     = useState<Filter>('')
   const [loading, setLoading]   = useState(true)
@@ -59,7 +57,6 @@ export default function FinanceiroPage() {
     pendente: false,
     data_vencimento: '',
     lote_id: '',
-    roca_id: '',
     ratear: false,
     rateioLotes: [] as string[],
     rateioMethod: 'igual' as 'igual' | 'cabeca',
@@ -77,9 +74,7 @@ export default function FinanceiroPage() {
     setLoading(true)
     const { data: faz } = await supabase.from('fazendas').select('id, nome').order('nome')
     const { data: lots } = await supabase.from('lotes').select('id, nome').order('nome')
-    const { data: rocs } = await supabase.from('rocas').select('id, nome').order('nome')
     setLotes(lots ?? [])
-    setRocas(rocs ?? [])
     await carregarCats()
 
     let q = supabase.from('financeiro').select('*').order('data', { ascending: false }).limit(200)
@@ -154,11 +149,7 @@ export default function FinanceiroPage() {
 
     const insertFin = async (p: any) => {
       const payload = { ...p, status, data_vencimento: form.pendente && form.data_vencimento ? form.data_vencimento : null }
-      let { error } = await supabase.from('financeiro').insert(payload)
-      if (error && /roca_id|PGRST204/.test(error.message + (error.code ?? ''))) {
-        const { roca_id: _r, ...noRoca } = payload
-        ;({ error } = await supabase.from('financeiro').insert(noRoca))
-      }
+      const { error } = await supabase.from('financeiro').insert(payload)
       return error
     }
 
@@ -182,8 +173,7 @@ export default function FinanceiroPage() {
       }
     } else {
       const loteId = form.lote_id || null
-      const rocaId = form.roca_id || null
-      const error = await insertFin({ ...basePayload, valor: val, lote_id: loteId, roca_id: rocaId })
+      const error = await insertFin({ ...basePayload, valor: val, lote_id: loteId })
       if (error) {
         alert(`Erro ao salvar:\n${error.message}\nCódigo: ${error.code}\n${error.details ?? ''}`)
         setSaving(false)
@@ -209,7 +199,7 @@ export default function FinanceiroPage() {
 
   function abrirNovo() {
     const p = cats.find(c => c.tipo === 'entrada')
-    setForm({ tipo: 'entrada', categoria: p?.nome ?? '', valor: '', data: new Date().toLocaleDateString('pt-BR'), descricao: '', fazenda_id: fazendas[0]?.id ?? '', pendente: false, data_vencimento: '', lote_id: '', roca_id: '', ratear: false, rateioLotes: [], rateioMethod: 'igual' })
+    setForm({ tipo: 'entrada', categoria: p?.nome ?? '', valor: '', data: new Date().toLocaleDateString('pt-BR'), descricao: '', fazenda_id: fazendas[0]?.id ?? '', pendente: false, data_vencimento: '', lote_id: '', ratear: false, rateioLotes: [], rateioMethod: 'igual' })
     setAddingCat(false); setNovaCat(''); setOpen(true)
   }
 
@@ -487,27 +477,14 @@ export default function FinanceiroPage() {
               <Input placeholder="Opcional" value={form.descricao} onChange={e => setF('descricao', e.target.value)} />
             </div>
 
-            {/* Lote e Roça */}
-            {(lotes.length > 0 || rocas.length > 0) && !form.ratear && (
-              <div className="grid grid-cols-2 gap-3">
-                {lotes.length > 0 && (
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 block mb-1">Lote</label>
-                    <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={form.lote_id} onChange={e => setF('lote_id', e.target.value)}>
-                      <option value="">Nenhum</option>
-                      {lotes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-                    </select>
-                  </div>
-                )}
-                {rocas.length > 0 && (
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 block mb-1">Roça</label>
-                    <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={form.roca_id} onChange={e => setF('roca_id', e.target.value)}>
-                      <option value="">Nenhuma</option>
-                      {rocas.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
-                    </select>
-                  </div>
-                )}
+            {/* Lote */}
+            {lotes.length > 0 && !form.ratear && (
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Lote</label>
+                <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" value={form.lote_id} onChange={e => setF('lote_id', e.target.value)}>
+                  <option value="">Nenhum</option>
+                  {lotes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+                </select>
               </div>
             )}
 

@@ -1,0 +1,16 @@
+[
+  {"id":"2448e3b9-b813-4c64-8810-8a8e12e17257","fazenda_id":"4b7510cd-5351-417c-b056-e7b6f7aa83db","nome":"Roça da Serra","area_ha":"20","created_at":"2026-07-28 09:36:54.226729+00"},
+  {"id":"181537ce-b44e-4110-9c13-b597b3468c8c","fazenda_id":"4b7510cd-5351-417c-b056-e7b6f7aa83db","nome":"Roça do Asfalto","area_ha":"40","created_at":"2026-07-28 09:37:15.259685+00"},
+  {"id":"75a6efbf-ca32-423d-b926-ff68ba25f3c6","fazenda_id":"4b7510cd-5351-417c-b056-e7b6f7aa83db","nome":"Roça do Baixio","area_ha":"10","created_at":"2026-07-28 09:37:33.254108+00"},
+  {"id":"7772c9a6-89dd-42ca-95ec-718f930839a4","fazenda_id":"4b7510cd-5351-417c-b056-e7b6f7aa83db","nome":"Roça do Curral","area_ha":"15","created_at":"2026-07-28 09:36:41.919751+00"},
+  {"id":"68f83b7f-b0b9-4bfb-8de5-80bab8b35134","fazenda_id":"c9bb4f48-5a74-45d2-8022-8da36545a551","nome":"Roça Única","area_ha":"12","created_at":"2026-07-28 09:34:10.154315+00"},
+  {"id":"feeb88f6-ed06-4d66-a589-ff58f742ea66","fazenda_id":"f6e29cee-f1e3-4376-9d60-f9d3cec9b581","nome":"Roça 33","area_ha":"10","created_at":"2026-07-28 09:32:33.862512+00"},
+  {"id":"5719014d-41b1-48dd-9a3d-15c018dc6b7f","fazenda_id":"f6e29cee-f1e3-4376-9d60-f9d3cec9b581","nome":"Roça Bilica","area_ha":"10","created_at":"2026-07-28 09:31:35.516483+00"},
+  {"id":"01e67331-8e9f-40eb-ace0-4b5044629ee3","fazenda_id":"f6e29cee-f1e3-4376-9d60-f9d3cec9b581","nome":"Roça da Serra","area_ha":"30","created_at":"2026-07-28 09:32:49.662003+00"},
+  {"id":"d8157fb5-35e2-42ec-9367-f9ce9100767d","fazenda_id":"f6e29cee-f1e3-4376-9d60-f9d3cec9b581","nome":"Roça do curral","area_ha":"10","created_at":"2026-07-28 09:30:15.08824+00"},
+  {"id":"e1a2dea9-10fb-4ff1-bee6-ebffb099c3b7","fazenda_id":"f6e29cee-f1e3-4376-9d60-f9d3cec9b581","nome":"Roça do Meio","area_ha":"12","created_at":"2026-07-28 09:30:33.302951+00"},
+  {"id":"a9305020-e9a6-463b-9aa0-96a805a8951d","fazenda_id":"f6e29cee-f1e3-4376-9d60-f9d3cec9b581","nome":"Roça do Rio","area_ha":"20","created_at":"2026-07-28 09:30:48.800094+00"},
+  {"id":"345ee29b-9fd5-4707-a137-0e3432d60326","fazenda_id":"fa67bbc2-ca8e-46fb-84bf-4ca5d6046a8b","nome":"Roça Única","area_ha":"30","created_at":"2026-07-28 09:39:03.634198+00"},
+  {"id":"9e4752f1-65cf-4e8c-846c-c89270ce4e21","fazenda_id":"fd3c13de-6c45-466d-9a1f-64ae25ac4b39","nome":"Roça 1","area_ha":"15","created_at":"2026-07-28 09:35:07.01035+00"},
+  {"id":"cd8e672b-ef46-4d1a-8cf0-23669b470437","fazenda_id":"fd3c13de-6c45-466d-9a1f-64ae25ac4b39","nome":"Roça Asfalto","area_ha":"30","created_at":"2026-07-28 09:34:28.58715+00"}
+]
