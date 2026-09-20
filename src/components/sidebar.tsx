@@ -48,6 +48,23 @@ function setCookieFazenda(id: string) {
   }
 }
 
+function VersionBadge() {
+  const sha = process.env.NEXT_PUBLIC_COMMIT_SHA ?? 'dev'
+  const buildTime = process.env.NEXT_PUBLIC_BUILD_TIME
+  const shortSha = sha === 'dev' ? 'dev' : sha.slice(0, 7)
+  const buildLabel = buildTime
+    ? new Date(buildTime).toLocaleString('pt-BR', {
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+      })
+    : '—'
+  return (
+    <div className="mt-2 px-3 py-1.5 rounded-lg bg-green-950/60">
+      <p className="text-[10px] font-mono text-green-500 leading-tight">v {shortSha}</p>
+      <p className="text-[10px] text-green-600 leading-tight">{buildLabel}</p>
+    </div>
+  )
+}
+
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
@@ -190,6 +207,7 @@ export function Sidebar() {
           <LogOut size={18} />
           Sair
         </button>
+        <VersionBadge />
       </div>
     </>
   )
@@ -280,6 +298,7 @@ export function Sidebar() {
               <LogOut size={22} />
               Sair
             </button>
+            <VersionBadge />
           </div>
         </div>
       )}

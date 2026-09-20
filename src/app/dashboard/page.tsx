@@ -9,13 +9,14 @@ type KPIs = {
   descartes: number
   atencaoCount: number
   matrizes: number
-  femeasVivas: number
+  femeasRepro: number
   gestantes: number
   taxaPrenhez: number
   bezerrosMes: number
   pesoMedio: number | null
   resultado: number
   vacinasVenc: number
+  totalCalendario: number
   criticos: number
   semEstoque: boolean
 }
@@ -37,10 +38,11 @@ async function getKPIs(fazendaIds: string[]): Promise<KPIs | null> {
     { count: descartes },
     { count: atencaoCount },
     { count: matrizes },
-    { count: femeasVivas },
+    { count: femeasRepro },
     { count: gestantes },
     { count: bezerrosMes },
     { count: vacinasVenc },
+    { count: totalCalendario },
     { data: estoques },
     { data: finMes },
     { data: pesRecentes },
@@ -49,10 +51,11 @@ async function getKPIs(fazendaIds: string[]): Promise<KPIs | null> {
     addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('marcacao', 'descarte')),
     addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('marcacao', 'atencao')),
     addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('categoria', 'matriz').eq('status', 'ativo')),
-    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('sexo', 'femea').eq('status', 'ativo').or('marcacao.is.null,marcacao.neq.descarte')),
+    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).in('categoria', ['matriz', 'novilha']).eq('status', 'ativo').or('marcacao.is.null,marcacao.neq.descarte')),
     addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('status_reprodutivo', 'gestante').eq('status', 'ativo')),
     addF(supabase.from('reproducao').select('*', { count: 'exact', head: true }).eq('resultado_parto', 'vivo').gte('data_parto_real', inicioMes)),
     addF(supabase.from('sanitario').select('*', { count: 'exact', head: true }).lte('proxima_aplicacao', hoje)),
+    addF(supabase.from('sanitario').select('*', { count: 'exact', head: true }).not('proxima_aplicacao', 'is', null)),
     addF(supabase.from('estoque').select('quantidade, estoque_minimo')),
     addF(supabase.from('financeiro').select('tipo, valor').gte('data', inicioMes).neq('status', 'pendente')),
     supabase.from('pesagens').select('peso_kg').order('data', { ascending: false }).limit(300),
@@ -62,7 +65,7 @@ async function getKPIs(fazendaIds: string[]): Promise<KPIs | null> {
   const semEstoque = (estoques ?? []).length === 0
   const resultado = (finMes ?? []).reduce((acc: number, m: any) =>
     m.tipo === 'entrada' ? acc + m.valor : acc - m.valor, 0)
-  const fv = femeasVivas ?? 0
+  const fv = femeasRepro ?? 0
   const taxaPrenhez = fv > 0 ? Math.round(((gestantes ?? 0) / fv) * 100) : 0
   const ps = pesRecentes ?? []
   const pesoMedio = ps.length > 0
@@ -78,13 +81,14 @@ async function getKPIs(fazendaIds: string[]): Promise<KPIs | null> {
     descartes: dc,
     atencaoCount: ac,
     matrizes: matrizes ?? 0,
-    femeasVivas: fv,
+    femeasRepro: fv,
     gestantes: gestantes ?? 0,
     taxaPrenhez,
     bezerrosMes: bezerrosMes ?? 0,
     pesoMedio,
     resultado,
     vacinasVenc: vacinasVenc ?? 0,
+    totalCalendario: totalCalendario ?? 0,
     criticos,
     semEstoque,
   }
@@ -148,7 +152,7 @@ export default async function DashboardPage() {
     {
       label: 'Matrizes ativas',
       value: kpis?.matrizes ?? 0,
-      subtitle: kpis ? `${kpis.femeasVivas} fêmeas reprod.` : '—',
+      subtitle: kpis ? `${kpis.femeasRepro} fêmeas em reprodução` : '—',
     },
     {
       label: 'Bezerros/mês',
@@ -158,7 +162,7 @@ export default async function DashboardPage() {
     {
       label: 'Taxa de prenhez',
       value: `${kpis?.taxaPrenhez ?? 0}%`,
-      subtitle: kpis ? `${kpis.femeasVivas} fêmeas — ${kpis.gestantes} prenhas` : '—',
+      subtitle: kpis ? `${kpis.femeasRepro} fêmeas em reprodução — ${kpis.gestantes} prenhas` : '—',
     },
     {
       label: 'Peso médio',
@@ -175,9 +179,15 @@ export default async function DashboardPage() {
     },
     {
       label: 'Vacinas vencidas',
-      value: (kpis?.vacinasVenc ?? 0) === 0 ? 'em dia' : String(kpis?.vacinasVenc),
-      subtitle: (kpis?.vacinasVenc ?? 0) === 0 ? 'calendário ok' : 'aplicações atrasadas',
-      accent: (kpis?.vacinasVenc ?? 0) > 0 ? 'text-red-600' : 'text-green-700',
+      value: !kpis || kpis.totalCalendario === 0
+        ? 'sem dados'
+        : kpis.vacinasVenc === 0 ? 'em dia' : String(kpis.vacinasVenc),
+      subtitle: !kpis || kpis.totalCalendario === 0
+        ? 'nenhum calendário cadastrado'
+        : kpis.vacinasVenc === 0 ? 'calendário ok' : 'aplicações atrasadas',
+      accent: !kpis || kpis.totalCalendario === 0
+        ? 'text-gray-400'
+        : kpis.vacinasVenc > 0 ? 'text-red-600' : 'text-green-700',
     },
     {
       label: 'Estoque crítico',
@@ -199,7 +209,12 @@ export default async function DashboardPage() {
     <div className="px-4 py-5 max-w-2xl mx-auto md:max-w-none md:px-6">
       <div className="mb-5">
         <h1 className="text-xl font-bold text-gray-900">{displayName}</h1>
-        <p className="text-sm text-gray-400">{mesAtual()}</p>
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-gray-400">{mesAtual()}</p>
+          <span className="text-[10px] font-mono text-gray-300">
+            v {(process.env.NEXT_PUBLIC_COMMIT_SHA ?? 'dev').slice(0, 7)}
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 mb-6">
