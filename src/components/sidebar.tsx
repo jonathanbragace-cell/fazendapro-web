@@ -48,7 +48,7 @@ function setCookieFazenda(id: string) {
   }
 }
 
-function VersionBadge() {
+function VersionBadge({ light }: { light?: boolean }) {
   const sha = process.env.NEXT_PUBLIC_COMMIT_SHA ?? 'dev'
   const buildTime = process.env.NEXT_PUBLIC_BUILD_TIME
   const shortSha = sha === 'dev' ? 'dev' : sha.slice(0, 7)
@@ -57,6 +57,14 @@ function VersionBadge() {
         day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
       })
     : '—'
+  if (light) {
+    return (
+      <div className="mt-2 px-3 py-1.5 rounded-lg bg-gray-100">
+        <p className="text-[10px] font-mono text-gray-500 leading-tight">v {shortSha}</p>
+        <p className="text-[10px] text-gray-400 leading-tight">{buildLabel}</p>
+      </div>
+    )
+  }
   return (
     <div className="mt-2 px-3 py-1.5 rounded-lg bg-green-950/60">
       <p className="text-[10px] font-mono text-green-500 leading-tight">v {shortSha}</p>
@@ -74,6 +82,7 @@ export function Sidebar() {
   const [fazendas, setFazendas] = useState<Fazenda[]>([])
   const [selectedFazendaId, setSelectedFazendaId] = useState<string>('')
   const [showFazendaPicker, setShowFazendaPicker] = useState(false)
+  const [showMobilePicker, setShowMobilePicker] = useState(false)
   const pickerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -232,73 +241,77 @@ export function Sidebar() {
 
       {/* ── MOBILE: menu fullscreen ── */}
       {mobileOpen && (
-        <div className="md:hidden fixed inset-0 z-50 bg-green-900 flex flex-col">
-          <div className="flex items-center px-4 h-14 border-b border-green-800 shrink-0">
-            <p className="font-bold text-white flex-1">Menu</p>
-            <button onClick={() => setMobileOpen(false)} className="text-white p-1.5 rounded-lg hover:bg-green-800">
+        <div className="md:hidden fixed inset-0 z-50 bg-white flex flex-col">
+          <div className="flex items-center px-4 h-14 border-b border-gray-100 shrink-0">
+            <p className="font-bold text-gray-900 flex-1">Menu</p>
+            <button onClick={() => setMobileOpen(false)} className="text-gray-600 p-1.5 rounded-lg hover:bg-gray-100">
               <X size={22} />
             </button>
           </div>
 
-          {/* Farm selector mobile */}
+          {/* Farm selector mobile — compact dropdown */}
           {fazendas.length > 0 && (
-            <div className="px-3 py-3 border-b border-green-800 shrink-0">
-              <p className="text-xs text-green-400 font-semibold uppercase tracking-wider mb-2 px-1">Fazenda</p>
-              <div className="space-y-1">
-                {fazendas.map(f => (
-                  <button
-                    key={f.id}
-                    onClick={() => { selectFazenda(f.id); setMobileOpen(false) }}
-                    className={cn(
-                      'w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium flex items-center justify-between gap-2',
-                      selectedFazendaId === f.id
-                        ? 'bg-green-600 text-white'
-                        : 'text-green-100 hover:bg-green-800'
-                    )}
-                  >
-                    <span className="truncate">{f.nome}</span>
-                    {selectedFazendaId === f.id && <Check size={14} className="shrink-0" />}
-                  </button>
-                ))}
-                {fazendas.length > 1 && (
-                  <button
-                    onClick={() => { selectFazenda(''); setMobileOpen(false) }}
-                    className={cn(
-                      'w-full text-left px-3 py-2.5 rounded-lg text-sm font-medium flex items-center justify-between gap-2',
-                      !selectedFazendaId
-                        ? 'bg-green-600 text-white'
-                        : 'text-green-300 hover:bg-green-800'
-                    )}
-                  >
-                    <span>Todas as fazendas</span>
-                    {!selectedFazendaId && <Check size={14} className="shrink-0" />}
-                  </button>
-                )}
-              </div>
+            <div className="px-3 py-3 border-b border-gray-100 shrink-0">
+              <button
+                onClick={() => setShowMobilePicker(v => !v)}
+                className="w-full flex items-center justify-between gap-2 border border-gray-200 rounded-xl px-3 py-2.5 bg-gray-50 hover:bg-gray-100 transition-colors"
+              >
+                <span className="text-sm font-semibold text-gray-800 truncate">{displayFazenda}</span>
+                <ChevronDown size={14} className={cn('shrink-0 text-gray-400 transition-transform', showMobilePicker && 'rotate-180')} />
+              </button>
+              {showMobilePicker && (
+                <div className="mt-1 border border-gray-200 rounded-xl overflow-hidden shadow-md">
+                  {fazendas.map(f => (
+                    <button
+                      key={f.id}
+                      onClick={() => { selectFazenda(f.id); setShowMobilePicker(false); setMobileOpen(false) }}
+                      className={cn(
+                        'w-full text-left px-4 py-3 text-sm flex items-center justify-between gap-2 border-b border-gray-50 last:border-b-0 hover:bg-gray-50 transition-colors',
+                        selectedFazendaId === f.id ? 'text-green-700 font-semibold bg-green-50' : 'text-gray-800'
+                      )}
+                    >
+                      <span className="truncate">{f.nome}</span>
+                      {selectedFazendaId === f.id && <Check size={14} className="shrink-0 text-green-600" />}
+                    </button>
+                  ))}
+                  {fazendas.length > 1 && (
+                    <button
+                      onClick={() => { selectFazenda(''); setShowMobilePicker(false); setMobileOpen(false) }}
+                      className={cn(
+                        'w-full text-left px-4 py-3 text-sm flex items-center justify-between gap-2 hover:bg-gray-50 transition-colors border-t border-gray-100',
+                        !selectedFazendaId ? 'text-green-700 font-semibold bg-green-50' : 'text-gray-500'
+                      )}
+                    >
+                      <span>Todas as fazendas</span>
+                      {!selectedFazendaId && <Check size={14} className="shrink-0 text-green-600" />}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
-          <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+          <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
             {navItems.map(item => {
               const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
               return (
                 <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)}
-                  className={cn('flex items-center gap-4 px-4 py-3.5 rounded-xl text-base font-medium transition-colors',
-                    active ? 'bg-green-600 text-white' : 'text-green-100 hover:bg-green-800'
+                  className={cn('flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors',
+                    active ? 'bg-green-50 text-green-700' : 'text-gray-700 hover:bg-gray-50'
                   )}>
-                  <item.icon size={22} />
+                  <item.icon size={20} className={active ? 'text-green-600' : 'text-gray-400'} />
                   {item.label}
                 </Link>
               )
             })}
           </nav>
-          <div className="px-3 py-4 border-t border-green-800 shrink-0">
+          <div className="px-3 py-4 border-t border-gray-100 shrink-0">
             <button onClick={handleLogout}
-              className="flex items-center gap-4 px-4 py-3.5 w-full rounded-xl text-base font-medium text-green-100 hover:bg-green-800 transition-colors">
-              <LogOut size={22} />
+              className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+              <LogOut size={20} className="text-gray-400" />
               Sair
             </button>
-            <VersionBadge />
+            <VersionBadge light />
           </div>
         </div>
       )}
