@@ -5,7 +5,10 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Plus, TrendingUp, TrendingDown, Wallet, Trash2, X, Check, Clock, AlertCircle } from 'lucide-react'
+import {
+  Plus, TrendingUp, TrendingDown, Wallet, Trash2, X, Check, Clock,
+  ChevronDown, ChevronRight, Paperclip, Eye,
+} from 'lucide-react'
 
 type Mov = {
   id: string; tipo: 'entrada' | 'saida'; categoria: string
@@ -13,10 +16,15 @@ type Mov = {
   status: 'pago' | 'recebido' | 'pendente'; data_vencimento: string | null
   lote_id?: string | null
 }
+type Pagamento = {
+  id: string; financeiro_id: string
+  valor: number; data: string
+  comprovante_url: string | null; created_at: string
+}
 type Fazenda = { id: string; nome: string }
-type Cat = { id: string; tipo: string; nome: string }
-type Lote  = { id: string; nome: string }
-type Filter = '' | 'entrada' | 'saida' | 'a_pagar' | 'a_receber'
+type Cat     = { id: string; tipo: string; nome: string }
+type Lote    = { id: string; nome: string }
+type Filter  = '' | 'entrada' | 'saida' | 'a_pagar' | 'a_receber'
 
 const SQL_CATS = `CREATE TABLE IF NOT EXISTS financeiro_categorias (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -35,17 +43,27 @@ const fmtDate = (iso: string) => { if (!iso) return ''; const [y,m,d] = iso.spli
 const hoje = () => new Date().toISOString().split('T')[0]
 
 export default function FinanceiroPage() {
-  const [movs, setMovs]         = useState<Mov[]>([])
-  const [fazendas, setFazendas] = useState<Fazenda[]>([])
-  const [lotes, setLotes]       = useState<Lote[]>([])
-  const [cats, setCats]         = useState<Cat[]>([])
-  const [filter, setFilter]     = useState<Filter>('')
-  const [loading, setLoading]   = useState(true)
-  const [setupSql, setSetupSql] = useState('')
-  const [open, setOpen]         = useState(false)
-  const [saving, setSaving]     = useState(false)
-  const [novaCat, setNovaCat]   = useState('')
-  const [addingCat, setAddingCat] = useState(false)
+  const [movs, setMovs]             = useState<Mov[]>([])
+  const [pagamentosMap, setPagamentosMap] = useState<Record<string, Pagamento[]>>({})
+  const [expandedMov, setExpandedMov] = useState<string | null>(null)
+  const [fazendas, setFazendas]     = useState<Fazenda[]>([])
+  const [lotes, setLotes]           = useState<Lote[]>([])
+  const [cats, setCats]             = useState<Cat[]>([])
+  const [filter, setFilter]         = useState<Filter>('')
+  const [loading, setLoading]       = useState(true)
+  const [setupSql, setSetupSql]     = useState('')
+  const [open, setOpen]             = useState(false)
+  const [saving, setSaving]         = useState(false)
+  const [novaCat, setNovaCat]       = useState('')
+  const [addingCat, setAddingCat]   = useState(false)
+
+  // Payment dialog
+  const [payDialog, setPayDialog]   = useState<{ mov: Mov } | null>(null)
+  const [payValor, setPayValor]     = useState('')
+  const [payData, setPayData]       = useState('')
+  const [payFile, setPayFile]       = useState<File | null>(null)
+  const [payUploading, setPayUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [form, setForm] = useState({
     tipo: 'entrada' as 'entrada' | 'saida',
@@ -78,14 +96,33 @@ export default function FinanceiroPage() {
     await carregarCats()
 
     let q = supabase.from('financeiro').select('*').order('data', { ascending: false }).limit(200)
-    if (filter === 'entrada')    q = q.eq('tipo', 'entrada').neq('status', 'pendente')
-    if (filter === 'saida')      q = q.eq('tipo', 'saida').neq('status', 'pendente')
-    if (filter === 'a_pagar')    q = q.eq('tipo', 'saida').eq('status', 'pendente')
-    if (filter === 'a_receber')  q = q.eq('tipo', 'entrada').eq('status', 'pendente')
+    if (filter === 'entrada')   q = q.eq('tipo', 'entrada').neq('status', 'pendente')
+    if (filter === 'saida')     q = q.eq('tipo', 'saida').neq('status', 'pendente')
+    if (filter === 'a_pagar')   q = q.eq('tipo', 'saida').eq('status', 'pendente')
+    if (filter === 'a_receber') q = q.eq('tipo', 'entrada').eq('status', 'pendente')
 
     const { data } = await q
     setFazendas(faz ?? [])
     setMovs(data ?? [])
+
+    // Load pagamentos for all shown movs
+    const movIds = (data ?? []).map((m: any) => m.id)
+    if (movIds.length > 0) {
+      const { data: pags } = await supabase
+        .from('financeiro_pagamentos')
+        .select('*')
+        .in('financeiro_id', movIds)
+        .order('data', { ascending: true })
+      const newMap: Record<string, Pagamento[]> = {}
+      for (const p of pags ?? []) {
+        if (!newMap[p.financeiro_id]) newMap[p.financeiro_id] = []
+        newMap[p.financeiro_id].push(p as Pagamento)
+      }
+      setPagamentosMap(newMap)
+    } else {
+      setPagamentosMap({})
+    }
+
     setLoading(false)
   }
 
@@ -114,6 +151,77 @@ export default function FinanceiroPage() {
       }
       return next
     })
+  }
+
+  function getSaldo(mov: Mov) {
+    const pags = pagamentosMap[mov.id] ?? []
+    const pago = pags.reduce((s, p) => s + Number(p.valor), 0)
+    return Math.max(0, mov.valor - pago)
+  }
+
+  function openPayDialog(mov: Mov) {
+    const saldo = getSaldo(mov)
+    setPayValor(saldo.toFixed(2).replace('.', ','))
+    setPayData(hoje())
+    setPayFile(null)
+    setPayDialog({ mov })
+  }
+
+  async function handlePagamento() {
+    if (!payDialog) return
+    const mov = payDialog.mov
+    const valorPago = parseFloat(payValor.replace(',', '.'))
+    if (!valorPago || valorPago <= 0) { alert('Informe um valor válido.'); return }
+
+    setPayUploading(true)
+
+    // Upload comprovante if provided
+    let comprovanteUrl: string | null = null
+    if (payFile) {
+      const ext = payFile.name.split('.').pop() ?? 'jpg'
+      const path = `${mov.id}/${Date.now()}.${ext}`
+      const { error: uploadError } = await supabase.storage
+        .from('comprovantes')
+        .upload(path, payFile, { contentType: payFile.type, upsert: false })
+      if (!uploadError) {
+        const { data: urlData } = supabase.storage.from('comprovantes').getPublicUrl(path)
+        comprovanteUrl = urlData.publicUrl
+      }
+    }
+
+    // Insert pagamento record
+    const { error } = await supabase.from('financeiro_pagamentos').insert({
+      financeiro_id: mov.id,
+      valor: valorPago,
+      data: payData || hoje(),
+      comprovante_url: comprovanteUrl,
+    })
+    if (error) { alert(`Erro ao registrar pagamento: ${error.message}`); setPayUploading(false); return }
+
+    // Check if fully paid
+    const existingPags = pagamentosMap[mov.id] ?? []
+    const totalJaPago = existingPags.reduce((s, p) => s + Number(p.valor), 0)
+    const totalPago = totalJaPago + valorPago
+
+    if (totalPago >= mov.valor) {
+      const novoStatus = mov.tipo === 'entrada' ? 'recebido' : 'pago'
+      await supabase.from('financeiro').update({
+        status: novoStatus,
+        data: payData || hoje(),
+      }).eq('id', mov.id)
+
+      if (mov.lote_id) {
+        if (mov.categoria === 'Compra — lote comercial') {
+          await supabase.from('lotes').update({ pago: true, data_pago_efetivo: payData || hoje() }).eq('id', mov.lote_id)
+        } else if (mov.categoria === 'Venda — lote comercial') {
+          await supabase.from('lotes').update({ recebido: true, data_recebido_efetivo: payData || hoje() }).eq('id', mov.lote_id)
+        }
+      }
+    }
+
+    setPayUploading(false)
+    setPayDialog(null)
+    load()
   }
 
   async function adicionarCat() {
@@ -153,7 +261,6 @@ export default function FinanceiroPage() {
       return error
     }
 
-    // Rateio: cria um lançamento por lote selecionado
     if (form.ratear && form.rateioLotes.length > 0) {
       let amounts: Record<string, number> = {}
       if (form.rateioMethod === 'cabeca') {
@@ -185,19 +292,6 @@ export default function FinanceiroPage() {
     load()
   }
 
-  async function marcarPago(mov: Mov) {
-    const novoStatus = mov.tipo === 'entrada' ? 'recebido' : 'pago'
-    await supabase.from('financeiro').update({ status: novoStatus, data: hoje() }).eq('id', mov.id)
-    if (mov.lote_id) {
-      if (mov.categoria === 'Compra — lote comercial') {
-        await supabase.from('lotes').update({ pago: true, data_pago_efetivo: hoje() }).eq('id', mov.lote_id)
-      } else if (mov.categoria === 'Venda — lote comercial') {
-        await supabase.from('lotes').update({ recebido: true, data_recebido_efetivo: hoje() }).eq('id', mov.lote_id)
-      }
-    }
-    load()
-  }
-
   async function handleDelete(id: string) {
     if (!confirm('Excluir este lançamento?')) return
     await supabase.from('financeiro').delete().eq('id', id)
@@ -211,11 +305,11 @@ export default function FinanceiroPage() {
   }
 
   const pagos     = movs.filter(m => m.status !== 'pendente')
-  const pendentes = movs.filter(m => m.status === 'pendente')
   const totEntradas = pagos.filter(m => m.tipo === 'entrada').reduce((s,m) => s + m.valor, 0)
   const totSaidas   = pagos.filter(m => m.tipo === 'saida').reduce((s,m) => s + m.valor, 0)
-  const totAPagar   = movs.filter(m => m.status === 'pendente' && m.tipo === 'saida').reduce((s,m) => s + m.valor, 0)
-  const totAReceber = movs.filter(m => m.status === 'pendente' && m.tipo === 'entrada').reduce((s,m) => s + m.valor, 0)
+  // KPIs use saldo restante (valor - já pago)
+  const totAPagar   = movs.filter(m => m.status === 'pendente' && m.tipo === 'saida').reduce((s,m) => s + getSaldo(m), 0)
+  const totAReceber = movs.filter(m => m.status === 'pendente' && m.tipo === 'entrada').reduce((s,m) => s + getSaldo(m), 0)
   const saldo = totEntradas - totSaidas
 
   const FILTERS: { key: Filter; label: string }[] = [
@@ -227,6 +321,12 @@ export default function FinanceiroPage() {
   ]
 
   const isVencido = (mov: Mov) => mov.data_vencimento && mov.data_vencimento < hoje()
+
+  // Compute pay dialog values
+  const payMov = payDialog?.mov ?? null
+  const payExistingPags = payMov ? (pagamentosMap[payMov.id] ?? []) : []
+  const payTotalJaPago  = payExistingPags.reduce((s, p) => s + Number(p.valor), 0)
+  const paySaldo        = payMov ? Math.max(0, payMov.valor - payTotalJaPago) : 0
 
   return (
     <div className="p-4 md:p-6">
@@ -320,7 +420,15 @@ export default function FinanceiroPage() {
                 <tbody className="divide-y divide-gray-100">
                   {movs.map(m => {
                     const vencido = isVencido(m)
-                    return (
+                    const pags = pagamentosMap[m.id] ?? []
+                    const totalPago = pags.reduce((s, p) => s + Number(p.valor), 0)
+                    const saldoMov = Math.max(0, m.valor - totalPago)
+                    const temPagamentoParcial = pags.length > 0 && m.status === 'pendente'
+                    const temHistorico = pags.length > 0
+                    const isExpanded = expandedMov === m.id
+                    const temComprovante = pags.some(p => p.comprovante_url)
+
+                    return [
                       <tr key={m.id} className={`hover:bg-gray-50 ${m.status === 'pendente' ? 'bg-amber-50/40' : ''}`}>
                         <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap text-xs md:text-sm">
                           {fmtDate(m.data)}
@@ -329,7 +437,6 @@ export default function FinanceiroPage() {
                               {vencido ? '⚠' : ''} Venc. {fmtDate(m.data_vencimento)}
                             </div>
                           )}
-                          {/* Status visível só no mobile */}
                           <div className="sm:hidden mt-1">
                             {m.status === 'pendente'
                               ? <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${vencido ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{vencido ? '⚠ Vencido' : 'Pendente'}</span>
@@ -353,13 +460,38 @@ export default function FinanceiroPage() {
                             </span>
                           )}
                         </td>
-                        <td className={`px-3 py-2.5 font-semibold whitespace-nowrap text-xs md:text-sm ${m.status === 'pendente' ? 'text-gray-500' : m.tipo === 'entrada' ? 'text-green-700' : 'text-red-600'}`}>
-                          {m.tipo === 'entrada' ? '+' : '-'}{fmt(m.valor)}
+                        <td className="px-3 py-2.5 whitespace-nowrap text-xs md:text-sm">
+                          {m.status === 'pendente' ? (
+                            <div>
+                              <span className={`font-semibold ${vencido ? 'text-red-600' : 'text-gray-700'}`}>
+                                {m.tipo === 'entrada' ? '+' : '-'}{fmt(saldoMov)}
+                              </span>
+                              {temPagamentoParcial && (
+                                <div className="text-[10px] text-gray-400 mt-0.5">
+                                  pago: {fmt(totalPago)} / {fmt(m.valor)}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className={`font-semibold ${m.tipo === 'entrada' ? 'text-green-700' : 'text-red-600'}`}>
+                              {m.tipo === 'entrada' ? '+' : '-'}{fmt(m.valor)}
+                            </span>
+                          )}
                         </td>
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-1.5 justify-end">
+                            {/* Expand history toggle */}
+                            {temHistorico && (
+                              <button
+                                onClick={() => setExpandedMov(isExpanded ? null : m.id)}
+                                className="text-gray-300 hover:text-gray-600 p-1 relative"
+                                title={`${pags.length} pagamento${pags.length > 1 ? 's' : ''}${temComprovante ? ' · comprovante' : ''}`}
+                              >
+                                {temComprovante ? <Paperclip size={13} className="text-blue-400 hover:text-blue-600" /> : (isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />)}
+                              </button>
+                            )}
                             {m.status === 'pendente' && (
-                              <button onClick={() => marcarPago(m)}
+                              <button onClick={() => openPayDialog(m)}
                                 className="flex items-center gap-1 text-xs text-green-700 font-medium hover:underline whitespace-nowrap">
                                 <Check size={13} />
                                 <span className="hidden sm:inline">{m.tipo === 'entrada' ? 'Receber' : 'Pagar'}</span>
@@ -370,8 +502,41 @@ export default function FinanceiroPage() {
                             </button>
                           </div>
                         </td>
-                      </tr>
-                    )
+                      </tr>,
+                      // Expanded history row
+                      isExpanded && (
+                        <tr key={`${m.id}-hist`} className={m.status === 'pendente' ? 'bg-amber-50/20' : 'bg-gray-50/60'}>
+                          <td colSpan={6} className="px-4 pb-3 pt-0">
+                            <div className="bg-white rounded-lg border border-gray-100 p-3 mt-1">
+                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Histórico de pagamentos</p>
+                              <div className="space-y-1.5">
+                                {pags.map((p, i) => (
+                                  <div key={p.id} className="flex items-center gap-3 text-xs">
+                                    <span className="text-gray-400 w-16 shrink-0">{fmtDate(p.data)}</span>
+                                    <span className="font-semibold text-gray-800 tabular-nums">{fmt(Number(p.valor))}</span>
+                                    {p.comprovante_url ? (
+                                      <a href={p.comprovante_url} target="_blank" rel="noopener noreferrer"
+                                        className="flex items-center gap-1 text-blue-600 hover:text-blue-700 ml-auto shrink-0">
+                                        <Eye size={11} />
+                                        <span>Comprovante</span>
+                                      </a>
+                                    ) : (
+                                      <span className="text-gray-300 ml-auto text-[10px]">sem comprovante</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                              {m.status === 'pendente' && (
+                                <div className="mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-xs">
+                                  <span className="text-gray-500">Saldo restante</span>
+                                  <span className="font-bold text-orange-600">{fmt(saldoMov)}</span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ),
+                    ]
                   })}
                 </tbody>
               </table>
@@ -380,7 +545,7 @@ export default function FinanceiroPage() {
         }
       </div>
 
-      {/* Modal */}
+      {/* Modal novo lançamento */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-full max-w-md max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-14 max-sm:rounded-b-none max-sm:rounded-t-2xl max-sm:translate-x-0 max-sm:translate-y-0 max-sm:left-0 max-sm:max-w-none overflow-y-auto max-h-[90vh] max-sm:max-h-full">
           <DialogHeader><DialogTitle>Novo lançamento</DialogTitle></DialogHeader>
@@ -438,7 +603,6 @@ export default function FinanceiroPage() {
               </div>
             </div>
 
-            {/* Pendente toggle */}
             <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
               <button type="button" onClick={() => setF('pendente', !form.pendente)}
                 className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${form.pendente ? 'bg-amber-500' : 'bg-gray-200'}`}>
@@ -484,7 +648,6 @@ export default function FinanceiroPage() {
               <Input placeholder="Opcional" value={form.descricao} onChange={e => setF('descricao', e.target.value)} />
             </div>
 
-            {/* Lote */}
             {lotes.length > 0 && !form.ratear && (
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Lote</label>
@@ -495,7 +658,6 @@ export default function FinanceiroPage() {
               </div>
             )}
 
-            {/* Rateio entre lotes */}
             {lotes.length > 1 && (
               <div>
                 <button type="button" onClick={() => setF('ratear', !form.ratear)}
@@ -551,6 +713,104 @@ export default function FinanceiroPage() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal pagamento parcial */}
+      <Dialog open={!!payDialog} onOpenChange={v => { if (!v) setPayDialog(null) }}>
+        <DialogContent className="w-full max-w-sm max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:rounded-b-none max-sm:rounded-t-2xl max-sm:translate-x-0 max-sm:translate-y-0 max-sm:left-0 max-sm:max-w-none overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {payMov?.tipo === 'entrada' ? 'Registrar recebimento' : 'Registrar pagamento'}
+            </DialogTitle>
+          </DialogHeader>
+
+          {payMov && (
+            <div className="space-y-4 pt-1">
+              {/* Resumo do lançamento */}
+              <div className="bg-gray-50 rounded-lg p-3 space-y-1.5 text-sm">
+                <p className="font-medium text-gray-800 truncate">{payMov.descricao}</p>
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>Valor total</span>
+                  <span className="tabular-nums font-medium text-gray-700">{fmt(payMov.valor)}</span>
+                </div>
+                {payTotalJaPago > 0 && (
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>Já {payMov.tipo === 'entrada' ? 'recebido' : 'pago'}</span>
+                    <span className="tabular-nums font-medium text-green-600">{fmt(payTotalJaPago)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-xs pt-1 border-t border-gray-200">
+                  <span className="font-semibold text-gray-700">Saldo restante</span>
+                  <span className="tabular-nums font-bold text-orange-600">{fmt(paySaldo)}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Valor pago (R$) *</label>
+                  <Input
+                    placeholder="0,00"
+                    value={payValor}
+                    onChange={e => setPayValor(e.target.value)}
+                    inputMode="decimal"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Data *</label>
+                  <Input
+                    type="date"
+                    value={payData}
+                    onChange={e => setPayData(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Comprovante upload */}
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Comprovante (opcional)</label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,application/pdf"
+                  className="hidden"
+                  onChange={e => setPayFile(e.target.files?.[0] ?? null)}
+                />
+                {payFile ? (
+                  <div className="flex items-center gap-2 border border-green-200 bg-green-50 rounded-lg px-3 py-2">
+                    <Paperclip size={14} className="text-green-600 shrink-0" />
+                    <span className="text-xs text-green-800 flex-1 truncate">{payFile.name}</span>
+                    <button type="button" onClick={() => setPayFile(null)} className="text-gray-400 hover:text-red-500">
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full border-2 border-dashed border-gray-200 rounded-lg px-3 py-3 text-xs text-gray-400 hover:border-green-300 hover:text-green-600 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Paperclip size={14} />
+                    Anexar foto ou PDF
+                  </button>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <Button variant="outline" className="flex-1" onClick={() => setPayDialog(null)}>
+                  Cancelar
+                </Button>
+                <Button
+                  className="flex-1 bg-green-700 hover:bg-green-800 text-white"
+                  onClick={handlePagamento}
+                  disabled={payUploading}
+                >
+                  {payUploading ? 'Salvando...' : 'Confirmar'}
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
