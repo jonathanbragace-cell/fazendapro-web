@@ -340,6 +340,7 @@ export default function RebanhoPage() {
         status: 'pendente',
         data_vencimento: venc.toISOString().split('T')[0],
         animal_id: insertedId,
+        lote_id: payload.lote_id ?? null,
       })
     }
     // Ao cadastrar novo bezerro com mãe vinculada, atualizar status da mãe para lactando

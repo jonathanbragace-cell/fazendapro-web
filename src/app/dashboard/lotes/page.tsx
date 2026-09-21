@@ -59,6 +59,7 @@ type LoteDespesa = {
 type Lancamento = {
   id: string; descricao: string | null; tipo: string
   valor: number; data: string | null; categoria: string | null
+  animal_id?: string | null
 }
 
 const TIPOS = ['cria', 'recria', 'engorda', 'comercial', 'descarte']
@@ -228,27 +229,40 @@ export default function LotesPage() {
     let counts: Record<string, number> = {}
     if (ids.length > 0) {
       const [{ data: fin }, { data: an }, { data: anCom }] = await Promise.all([
-        supabase.from('financeiro').select('lote_id, tipo, valor').in('lote_id', ids),
-        supabase.from('animais').select('lote_id, valor_compra').in('lote_id', ids).eq('status', 'ativo'),
+        supabase.from('financeiro').select('lote_id, tipo, valor, animal_id').in('lote_id', ids),
+        supabase.from('animais').select('id, lote_id, valor_compra').in('lote_id', ids).eq('status', 'ativo'),
         supabase.from('lote_animais_comerciais').select('lote_id').in('lote_id', ids),
       ])
-      const custosFin: Record<string, number> = {}
-      const custosVc: Record<string, number> = {}
+      // Group financeiro by lote
+      const finByLote: Record<string, { tipo: string; valor: number; animal_id: string | null }[]> = {}
       for (const f of fin ?? []) {
-        if (f.tipo === 'saida') custosFin[f.lote_id] = (custosFin[f.lote_id] ?? 0) + Number(f.valor)
+        if (!finByLote[f.lote_id]) finByLote[f.lote_id] = []
+        finByLote[f.lote_id].push({ tipo: f.tipo, valor: Number(f.valor), animal_id: f.animal_id ?? null })
       }
+      // Group animals by lote
+      const anByLote: Record<string, { id: string; valor_compra: number | null }[]> = {}
       for (const a of an ?? []) {
         counts[a.lote_id] = (counts[a.lote_id] ?? 0) + 1
-        if (a.valor_compra) custosVc[a.lote_id] = (custosVc[a.lote_id] ?? 0) + Number(a.valor_compra)
+        if (!anByLote[a.lote_id]) anByLote[a.lote_id] = []
+        anByLote[a.lote_id].push({ id: a.id, valor_compra: a.valor_compra ? Number(a.valor_compra) : null })
       }
       for (const a of anCom ?? []) {
         counts[a.lote_id] = (counts[a.lote_id] ?? 0) + 1
       }
-      // Financeiro é fonte de verdade; valor_compra só entra como fallback quando não há lancamentos
-      const allLids = new Set([...Object.keys(custosFin), ...Object.keys(custosVc)])
+      // Hybrid cost: sum all saida lancamentos + valor_compra for animals without per-animal lancamento
+      // (valor_compra only as extra fallback when there are no batch lancamentos)
+      const allLids = new Set([...Object.keys(finByLote), ...Object.keys(anByLote)])
       for (const lid of allLids) {
-        const fin = custosFin[lid] ?? 0
-        custos[lid] = fin > 0 ? fin : (custosVc[lid] ?? 0)
+        const loteFinList = finByLote[lid] ?? []
+        const perAnimalLancs = loteFinList.filter(f => f.tipo === 'saida' && f.animal_id)
+        const batchLancs = loteFinList.filter(f => f.tipo === 'saida' && !f.animal_id)
+        const perAnimalTotal = perAnimalLancs.reduce((s, f) => s + f.valor, 0)
+        const batchTotal = batchLancs.reduce((s, f) => s + f.valor, 0)
+        const withLanc = new Set(perAnimalLancs.map(f => f.animal_id).filter(Boolean))
+        const vcFallback = batchTotal === 0
+          ? (anByLote[lid] ?? []).filter(a => !withLanc.has(a.id) && a.valor_compra).reduce((s, a) => s + (a.valor_compra ?? 0), 0)
+          : 0
+        custos[lid] = perAnimalTotal + batchTotal + vcFallback
       }
     }
 
@@ -281,7 +295,7 @@ export default function LotesPage() {
     const [{ data: an }, { data: fin }] = await Promise.all([
       supabase.from('animais').select('id, brinco, nome, categoria, sexo, raca, valor_compra')
         .eq('lote_id', lote.id).eq('status', 'ativo').order('brinco'),
-      supabase.from('financeiro').select('id, descricao, tipo, valor, data, categoria')
+      supabase.from('financeiro').select('id, descricao, tipo, valor, data, categoria, animal_id')
         .eq('lote_id', lote.id).order('data', { ascending: false }),
     ])
     setAnimais(an ?? [])
@@ -627,6 +641,7 @@ export default function LotesPage() {
         status: 'pendente',
         data_vencimento: vencStr,
         animal_id: a.id,
+        lote_id: selected.id,
       }))
       await supabase.from('financeiro').insert(finRows as any)
     }
@@ -877,9 +892,15 @@ export default function LotesPage() {
 
   // ── DETALHE ──
   if (selected) {
-    const custosFin = lancamentos.filter(l => l.tipo === 'saida').reduce((s, l) => s + Number(l.valor), 0)
-    const custosVc = animais.reduce((s, a) => s + (a.valor_compra ? Number(a.valor_compra) : 0), 0)
-    const custosTotal = custosFin > 0 ? custosFin : custosVc
+    const perAnimalLancs = lancamentos.filter(l => l.tipo === 'saida' && l.animal_id)
+    const batchLancs = lancamentos.filter(l => l.tipo === 'saida' && !l.animal_id)
+    const perAnimalTotal = perAnimalLancs.reduce((s, l) => s + Number(l.valor), 0)
+    const batchTotal = batchLancs.reduce((s, l) => s + Number(l.valor), 0)
+    const animalsWithLanc = new Set(perAnimalLancs.map(l => l.animal_id).filter(Boolean))
+    const custosVcFallback = batchTotal === 0
+      ? animais.filter(a => !animalsWithLanc.has(a.id) && a.valor_compra).reduce((s, a) => s + Number(a.valor_compra), 0)
+      : 0
+    const custosTotal = perAnimalTotal + batchTotal + custosVcFallback
     const custoPorCabeca = animais.length > 0 ? custosTotal / animais.length : null
 
     const totCusto = animaisCom.reduce((s, a) => s + (computeAnimalCom(a, selected).custo ?? 0), 0)
