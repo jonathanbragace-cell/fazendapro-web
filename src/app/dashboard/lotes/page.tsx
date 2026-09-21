@@ -212,15 +212,23 @@ export default function LotesPage() {
         supabase.from('animais').select('lote_id, valor_compra').in('lote_id', ids).eq('status', 'ativo'),
         supabase.from('lote_animais_comerciais').select('lote_id').in('lote_id', ids),
       ])
+      const custosFin: Record<string, number> = {}
+      const custosVc: Record<string, number> = {}
       for (const f of fin ?? []) {
-        if (f.tipo === 'saida') custos[f.lote_id] = (custos[f.lote_id] ?? 0) + Number(f.valor)
+        if (f.tipo === 'saida') custosFin[f.lote_id] = (custosFin[f.lote_id] ?? 0) + Number(f.valor)
       }
       for (const a of an ?? []) {
         counts[a.lote_id] = (counts[a.lote_id] ?? 0) + 1
-        if (a.valor_compra) custos[a.lote_id] = (custos[a.lote_id] ?? 0) + Number(a.valor_compra)
+        if (a.valor_compra) custosVc[a.lote_id] = (custosVc[a.lote_id] ?? 0) + Number(a.valor_compra)
       }
       for (const a of anCom ?? []) {
         counts[a.lote_id] = (counts[a.lote_id] ?? 0) + 1
+      }
+      // Financeiro é fonte de verdade; valor_compra só entra como fallback quando não há lancamentos
+      const allLids = new Set([...Object.keys(custosFin), ...Object.keys(custosVc)])
+      for (const lid of allLids) {
+        const fin = custosFin[lid] ?? 0
+        custos[lid] = fin > 0 ? fin : (custosVc[lid] ?? 0)
       }
     }
 
@@ -760,8 +768,9 @@ export default function LotesPage() {
 
   // ── DETALHE ──
   if (selected) {
-    const valorCompraAnimais = animais.reduce((s, a) => s + (a.valor_compra ? Number(a.valor_compra) : 0), 0)
-    const custosTotal = lancamentos.filter(l => l.tipo === 'saida').reduce((s, l) => s + Number(l.valor), 0) + valorCompraAnimais
+    const custosFin = lancamentos.filter(l => l.tipo === 'saida').reduce((s, l) => s + Number(l.valor), 0)
+    const custosVc = animais.reduce((s, a) => s + (a.valor_compra ? Number(a.valor_compra) : 0), 0)
+    const custosTotal = custosFin > 0 ? custosFin : custosVc
     const custoPorCabeca = animais.length > 0 ? custosTotal / animais.length : null
 
     const totCusto = animaisCom.reduce((s, a) => s + (computeAnimalCom(a, selected).custo ?? 0), 0)
