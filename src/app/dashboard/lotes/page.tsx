@@ -74,7 +74,14 @@ const TIPO_COLOR: Record<string, string> = {
   descarte:  'bg-red-100 text-red-700',
 }
 const CAT_LABEL: Record<string, string> = {
-  matriz: 'Matriz', bezerro: 'Bezerro', novilha: 'Novilha', touro: 'Touro', boi: 'Boi',
+  matriz: 'Matriz', bezerro: 'Bezerro', bezerra: 'Bezerra', garrote: 'Garrote',
+  novilho: 'Novilho', novilha: 'Novilha', touro: 'Touro', boi: 'Boi',
+}
+const DEFAULT_RACAS = ['Nelore', 'Girolando', 'Gir', 'Angus', 'Brahman', 'Tabapuã', 'Mestiço', 'Outra']
+const AVULSO_CATS = ['boi', 'novilho', 'garrote', 'bezerro', 'bezerra', 'novilha', 'matriz', 'touro'] as const
+const CAT_SEXO_DEFAULT: Record<string, string> = {
+  matriz: 'femea', bezerra: 'femea', novilha: 'femea',
+  boi: 'macho', novilho: 'macho', garrote: 'macho', bezerro: 'macho', touro: 'macho',
 }
 const DESPESA_LABEL: Record<string, string> = {
   frete: 'Frete', comissao: 'Comissão', outros: 'Outros',
@@ -189,6 +196,15 @@ export default function LotesPage() {
   const [avulsoQtd, setAvulsoQtd] = useState('')
   const [avulsoCat, setAvulsoCat] = useState('boi')
   const [avulsoValor, setAvulsoValor] = useState('')
+  const [avulsoNome, setAvulsoNome] = useState('')
+  const [avulsoData, setAvulsoData] = useState('')
+  const [avulsoSexo, setAvulsoSexo] = useState('macho')
+  const [avulsoOrigem, setAvulsoOrigem] = useState('compra')
+  const [avulsoRaca, setAvulsoRaca] = useState('Nelore')
+  const [avulsoMaeBrinco, setAvulsoMaeBrinco] = useState('')
+  const [avulsoFornecedor, setAvulsoFornecedor] = useState('')
+  const [avulsoPeso, setAvulsoPeso] = useState('')
+  const [avulsoObs, setAvulsoObs] = useState('')
 
   async function load() {
     setLoading(true)
@@ -549,29 +565,67 @@ export default function LotesPage() {
     const qtd = parseInt(avulsoQtd)
     if (isNaN(qtd) || qtd <= 0) { alert('Informe uma quantidade válida.'); return }
     setSavingAdd(true)
+
     const { data: existing } = await supabase.from('animais').select('brinco').ilike('brinco', 'S/N-%')
     const maxNum = (existing ?? []).reduce((max, a) => {
       const n = parseInt((a.brinco as string).replace('S/N-', ''))
       return isNaN(n) ? max : Math.max(max, n)
     }, 0)
-    const sexo = avulsoCat === 'boi' || avulsoCat === 'touro' ? 'macho' : 'femea'
-    const valorUnit = avulsoValor ? parseFloat(avulsoValor.replace(',', '.')) : null
+
+    let maeId: string | null = null
+    if (avulsoOrigem === 'nascimento' && avulsoMaeBrinco.trim()) {
+      const { data: maeData } = await supabase.from('animais').select('id').ilike('brinco', avulsoMaeBrinco.trim()).single()
+      if (maeData) maeId = maeData.id
+    }
+
+    const dataNasc = avulsoData || new Date().toISOString().split('T')[0]
+    const valorUnit = avulsoOrigem === 'compra' && avulsoValor ? parseFloat(avulsoValor.replace(',', '.')) : null
+    const pesoKg = avulsoPeso ? parseFloat(avulsoPeso.replace(',', '.')) : null
+
     const animals = Array.from({ length: qtd }, (_, i) => ({
       brinco: `S/N-${String(maxNum + i + 1).padStart(4, '0')}`,
+      nome: avulsoNome.trim() || null,
+      data_nascimento: dataNasc,
+      sexo: avulsoSexo,
       categoria: avulsoCat,
-      sexo,
-      origem: 'compra',
+      raca: avulsoRaca,
+      origem: avulsoOrigem,
       status: 'ativo',
       lote_id: selected.id,
       fazenda_id: selected.fazenda_id,
       valor_compra: valorUnit,
+      fornecedor: avulsoOrigem === 'compra' && avulsoFornecedor.trim() ? avulsoFornecedor.trim() : null,
+      mae_id: maeId,
+      observacao: avulsoObs.trim() || null,
     }))
-    const { error } = await supabase.from('animais').insert(animals as any)
+
+    const { data: inserted, error } = await supabase.from('animais').insert(animals as any).select('id')
     if (error) { alert(`Erro: ${error.message}`); setSavingAdd(false); return }
+
+    if (pesoKg && inserted && inserted.length > 0) {
+      const pesagemRows = (inserted as { id: string }[]).map(a => ({
+        animal_id: a.id,
+        fazenda_id: selected.fazenda_id,
+        data: dataNasc,
+        peso_kg: pesoKg,
+      }))
+      await supabase.from('pesagens').insert(pesagemRows as any)
+    }
+
     setSavingAdd(false)
     setOpenAdd(false)
     setAvulsoQtd('')
+    setAvulsoNome('')
+    setAvulsoData('')
+    setAvulsoSexo('macho')
+    setAvulsoCat('boi')
+    setAvulsoOrigem('compra')
+    setAvulsoRaca('Nelore')
     setAvulsoValor('')
+    setAvulsoMaeBrinco('')
+    setAvulsoFornecedor('')
+    setAvulsoPeso('')
+    setAvulsoObs('')
     await refreshAnimais(selected.id)
     load()
   }
@@ -1216,7 +1270,7 @@ export default function LotesPage() {
                   <button
                     onClick={() => {
                       setAddSearch(''); setAddCatFilter(''); setAvailAnimais([]); setAddIds(new Set())
-                      setAddTab('brinco'); setOpenAdd(true); loadAvailAnimais('', '')
+                      setAddTab('brinco'); setAvulsoQtd(''); setAvulsoNome(''); setAvulsoData(''); setAvulsoSexo('macho'); setAvulsoCat('boi'); setAvulsoOrigem('compra'); setAvulsoRaca('Nelore'); setAvulsoValor(''); setAvulsoMaeBrinco(''); setAvulsoFornecedor(''); setAvulsoPeso(''); setAvulsoObs(''); setOpenAdd(true); loadAvailAnimais('', '')
                     }}
                     className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
                   >
@@ -1350,30 +1404,112 @@ export default function LotesPage() {
 
               {addTab === 'avulso' && (<>
                 <p className="text-xs text-gray-500 leading-relaxed">
-                  Cria animais sem brinco definido (identificados como S/N-XXXX). Você poderá atribuir o brinco depois na ficha de cada animal.
+                  Cria animais sem brinco (identificados como S/N-XXXX). Atribua o brinco depois na ficha de cada animal.
                 </p>
+
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">Quantidade <span className="text-red-500">*</span></label>
                   <Input type="number" min="1" placeholder="Ex: 5" value={avulsoQtd}
                     onChange={e => setAvulsoQtd(e.target.value)} />
                 </div>
+
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">Categoria</label>
                   <div className="flex gap-2 flex-wrap">
-                    {(['boi', 'novilha', 'bezerro', 'matriz', 'touro'] as const).map(c => (
-                      <button key={c} onClick={() => setAvulsoCat(c)}
+                    {AVULSO_CATS.map(c => (
+                      <button key={c} onClick={() => { setAvulsoCat(c); setAvulsoSexo(CAT_SEXO_DEFAULT[c] ?? 'macho') }}
                         className={`h-[34px] px-3 rounded-full text-xs font-semibold transition-colors ${avulsoCat === c ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                         {CAT_LABEL[c] ?? c}
                       </button>
                     ))}
                   </div>
                 </div>
+
                 <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">Valor de compra por animal (R$)</label>
-                  <Input placeholder="Ex: 2800,00" value={avulsoValor}
-                    onChange={e => setAvulsoValor(e.target.value)} />
-                  <p className="text-xs text-gray-400 mt-1">Entra no custo do lote. Deixe em branco se não souber.</p>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Sexo</label>
+                  <div className="flex gap-2">
+                    {(['macho', 'femea'] as const).map(s => (
+                      <button key={s} onClick={() => setAvulsoSexo(s)}
+                        className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${avulsoSexo === s ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                        {s === 'macho' ? 'Macho' : 'Fêmea'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Origem</label>
+                  <div className="flex gap-2">
+                    {(['compra', 'nascimento'] as const).map(o => (
+                      <button key={o} onClick={() => setAvulsoOrigem(o)}
+                        className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${avulsoOrigem === o ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                        {o === 'compra' ? 'Compra' : 'Nascimento'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {avulsoOrigem === 'nascimento' && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">Mãe <span className="text-gray-400 font-normal">(brinco, opcional)</span></label>
+                    <Input placeholder="Ex: 44" value={avulsoMaeBrinco}
+                      onChange={e => setAvulsoMaeBrinco(e.target.value.toUpperCase())} />
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
+                    {avulsoOrigem === 'compra' ? 'Data de compra' : 'Data de nascimento'}
+                  </label>
+                  <Input type="date" value={avulsoData}
+                    onChange={e => setAvulsoData(e.target.value)} />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Nome <span className="text-gray-400 font-normal">(opcional)</span></label>
+                  <Input placeholder="Ex: Princesa" value={avulsoNome}
+                    onChange={e => setAvulsoNome(e.target.value)} />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Raça</label>
+                  <div className="flex gap-2 flex-wrap">
+                    {DEFAULT_RACAS.map(r => (
+                      <button key={r} onClick={() => setAvulsoRaca(r)}
+                        className={`h-[34px] px-3 rounded-full text-xs font-semibold transition-colors ${avulsoRaca === r ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {avulsoOrigem === 'compra' && (<>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">Valor de compra por animal (R$)</label>
+                    <Input placeholder="Ex: 2800,00" inputMode="decimal" value={avulsoValor}
+                      onChange={e => setAvulsoValor(e.target.value)} />
+                    <p className="text-xs text-gray-400 mt-1">Entra no custo do lote.</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">Fornecedor</label>
+                    <Input placeholder="Nome do fornecedor" value={avulsoFornecedor}
+                      onChange={e => setAvulsoFornecedor(e.target.value)} />
+                  </div>
+                </>)}
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Peso (kg) <span className="text-gray-400 font-normal">(opcional)</span></label>
+                  <Input placeholder="Ex: 320" inputMode="decimal" value={avulsoPeso}
+                    onChange={e => setAvulsoPeso(e.target.value)} />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Observações</label>
+                  <textarea className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
+                    rows={2} placeholder="Anotações..." value={avulsoObs}
+                    onChange={e => setAvulsoObs(e.target.value)} />
+                </div>
+
                 <div className="flex gap-2 pt-1">
                   <Button variant="outline" className="flex-1" onClick={() => setOpenAdd(false)}>Cancelar</Button>
                   <Button className="flex-1 bg-green-700 hover:bg-green-800" onClick={handleAddAvulso}
