@@ -38,9 +38,16 @@ const CAT_CHIP_GROUPS: Record<string, string[]> = {
 
 const catColor: Record<string, string> = {
   matriz:'bg-green-100 text-green-800', bezerro:'bg-blue-100 text-blue-800',
-  novilha:'bg-yellow-100 text-yellow-800', touro:'bg-gray-100 text-gray-800', boi:'bg-gray-100 text-gray-700',
+  bezerra:'bg-pink-100 text-pink-700', garrote:'bg-yellow-100 text-yellow-800',
+  novilho:'bg-yellow-100 text-yellow-800', novilha:'bg-yellow-100 text-yellow-800',
+  touro:'bg-gray-100 text-gray-800', boi:'bg-gray-100 text-gray-700',
   ativo:'bg-green-100 text-green-800', vendido:'bg-gray-100 text-gray-600', morto:'bg-red-100 text-red-700', descarte:'bg-orange-100 text-orange-700', atencao:'bg-yellow-100 text-yellow-700',
   gestante:'bg-pink-100 text-pink-800', vazia:'bg-gray-100 text-gray-500', lactando:'bg-blue-100 text-blue-700', em_diagnostico:'bg-yellow-100 text-yellow-700',
+}
+// Label individual de cada categoria (não o nome do chip-filtro)
+const CAT_DISPLAY_LABEL: Record<string, string> = {
+  bezerro:'♂ Bezerro', bezerra:'♀ Bezerra', garrote:'Garrote', novilho:'Novilho',
+  novilha:'Novilha', matriz:'Matriz', touro:'Touro', boi:'Boi',
 }
 
 const EMPTY = {
@@ -193,9 +200,9 @@ export default function RebanhoPage() {
     }
     const { data: anim } = await q
     const sorted = (anim ?? []).sort((a, b) => {
-      const na = parseInt(a.brinco.replace(/\D/g, '')) || 0
-      const nb = parseInt(b.brinco.replace(/\D/g, '')) || 0
-      return na - nb
+      const aN = /^\d/.test(a.brinco); const bN = /^\d/.test(b.brinco)
+      if (aN !== bN) return aN ? -1 : 1
+      return (parseInt(a.brinco) || 0) - (parseInt(b.brinco) || 0)
     })
     setFazendas(faz ?? [])
     setLotes(lots ?? [])
@@ -527,9 +534,9 @@ export default function RebanhoPage() {
   async function openAddToLote() {
     const { data } = await supabase.from('animais').select('*').eq('status', 'ativo').is('lote_id', null).order('brinco')
     const sorted = (data ?? []).sort((a, b) => {
-      const na = parseInt(a.brinco.replace(/\D/g, '')) || 0
-      const nb = parseInt(b.brinco.replace(/\D/g, '')) || 0
-      return na - nb
+      const aN = /^\d/.test(a.brinco); const bN = /^\d/.test(b.brinco)
+      if (aN !== bN) return aN ? -1 : 1
+      return (parseInt(a.brinco) || 0) - (parseInt(b.brinco) || 0)
     })
     setAvailAnimals(sorted)
     setAddIds(new Set())
@@ -576,8 +583,8 @@ export default function RebanhoPage() {
         )}
       </div>
 
-      {/* Filtros — scroll horizontal no mobile */}
-      <div className="flex gap-2 mb-4 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap scrollbar-none">
+      {/* Filtros de categoria */}
+      <div className="flex gap-2 mb-4 flex-wrap">
         {['', ...CATS].map(c => (
           <button key={c} onClick={() => { setCatFilter(c); setReproFilter(''); setSexoFilter('') }}
             className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${catFilter === c ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-600 border-gray-200'}`}>
@@ -618,7 +625,7 @@ export default function RebanhoPage() {
 
       {/* Filtro por lote */}
       {lotes.length > 0 && (
-        <div className="flex gap-2 mb-2 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0 scrollbar-none">
+        <div className="flex gap-2 mb-2 flex-wrap">
           <button onClick={() => setLoteFilter('')}
             className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${loteFilter === '' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-500 border-gray-200'}`}>
             Todo lote
@@ -701,18 +708,17 @@ export default function RebanhoPage() {
         </div>
       )}
 
-      {/* Tabela */}
+      {/* Tabela compacta: Brinco · Categoria · Situação — toque na linha abre o modal */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         {loading
           ? <div className="p-8 text-center text-gray-400 text-sm">Carregando...</div>
           : animais.length === 0
             ? <div className="p-8 text-center text-gray-400 text-sm">Nenhum animal encontrado.</div>
             : (
-              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    <th className="px-3 py-2 w-8">
+                    <th className="px-3 py-2 w-8" onClick={e => e.stopPropagation()}>
                       <input type="checkbox"
                         checked={animais.length > 0 && selected.size === animais.length}
                         ref={el => { if (el) el.indeterminate = selected.size > 0 && selected.size < animais.length }}
@@ -721,96 +727,40 @@ export default function RebanhoPage() {
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Brinco</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Categoria</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Ações</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Reprod.</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Raça</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Lote</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Situação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {animais.map((a, idx) => (
-                    <tr key={a.id} className={`hover:bg-gray-50 transition-colors ${selected.has(a.id) ? 'bg-green-50/60' : ''}`}>
-                      <td className="px-3 py-2 w-8">
+                    <tr key={a.id}
+                      onClick={() => setDetail(a)}
+                      className={`cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors ${selected.has(a.id) ? 'bg-green-50/60' : ''}`}>
+                      <td className="px-3 py-2.5 w-8" onClick={e => e.stopPropagation()}>
                         <input type="checkbox"
                           checked={selected.has(a.id)}
                           onClick={e => { e.stopPropagation(); toggleSelect(a.id, idx, (e as React.MouseEvent).shiftKey) }}
                           onChange={() => {}}
                           className="rounded border-gray-300 cursor-pointer" />
                       </td>
-                      <td className="px-3 py-2 font-semibold text-gray-900">
-                        <button onClick={() => router.push('/dashboard/rebanho/' + a.id)} className="hover:text-green-700 hover:underline">{a.brinco}</button>
-                        {a.nome && <p className="text-xs text-gray-400 font-normal">{a.nome}</p>}
+                      <td className="px-3 py-2.5">
+                        <p className="font-semibold text-gray-900 whitespace-nowrap">{a.brinco}</p>
+                        {a.nome && <p className="text-[11px] text-gray-400 font-normal leading-tight mt-0.5">{a.nome}</p>}
                       </td>
-                      <td className="px-3 py-2">
-                        {a.categoria === 'bezerro'
-                          ? <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${a.sexo === 'femea' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'}`}>
-                              {a.sexo === 'femea' ? '♀ Bez.' : '♂ Bez.'}
-                            </span>
-                          : <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${catColor[a.categoria] ?? 'bg-gray-100 text-gray-600'}`}>{LABELS[a.categoria]}</span>
-                        }
+                      <td className="px-3 py-2.5">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${catColor[a.categoria] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {CAT_DISPLAY_LABEL[a.categoria] ?? a.categoria}
+                        </span>
                       </td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-1.5">
-                          {a.categoria === 'matriz' && a.status_reprodutivo === 'gestante' && (
-                            <button onClick={() => abrirParto(a)}
-                              title="Registrar parto"
-                              className="p-1 text-pink-400 hover:text-pink-600 transition-colors">
-                              <Baby size={14} />
-                            </button>
-                          )}
-                          {a.marcacao !== 'descarte' && (
-                            <button onClick={() => openEdit(a)} className="text-gray-400 hover:text-green-600 p-1"><Pencil size={14} /></button>
-                          )}
-                          <button onClick={() => handleDescarte(a)}
-                            title={a.marcacao === 'descarte' ? 'Remover descarte' : 'Marcar para descarte'}
-                            className={`p-1 transition-colors ${a.marcacao === 'descarte' ? 'text-orange-400' : 'text-gray-300 hover:text-orange-500'}`}>
-                            <Scissors size={13} />
-                          </button>
-                          {a.status !== 'morto' && (
-                            <button onClick={() => { if (confirm(`Registrar perda do animal ${a.brinco}?`)) { supabase.from('animais').update({ status: 'morto' }).eq('id', a.id).then(() => load()) } }}
-                              title="Registrar perda (morte)"
-                              className="p-1 text-gray-300 hover:text-red-500 transition-colors">
-                              <Skull size={13} />
-                            </button>
-                          )}
-                          {a.status !== 'morto' && (
-                            <button onClick={() => handleAtencao(a)}
-                              title={a.marcacao === 'atencao' ? 'Remover atenção' : 'Colocar sob atenção'}
-                              className={`p-1 transition-colors ${a.marcacao === 'atencao' ? 'text-yellow-500' : 'text-gray-300 hover:text-yellow-500'}`}>
-                              <AlertTriangle size={13} />
-                            </button>
-                          )}
-                          {loteFilter && loteFilter !== 'sem_lote' && (
-                            <button onClick={() => handleRemoveFromLote(a.id)}
-                              title="Remover do lote"
-                              className="p-1 text-gray-300 hover:text-orange-400 transition-colors">
-                              <X size={13} />
-                            </button>
-                          )}
-                          {cargo === 'admin' && (
-                            <button onClick={() => handleDelete(a)} className="p-1 text-gray-300 hover:text-red-500"><Trash2 size={14} /></button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2">
-                        {a.status_reprodutivo
-                          ? <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${catColor[a.status_reprodutivo] ?? 'bg-gray-100 text-gray-500'}`}>{LABELS[a.status_reprodutivo] ?? a.status_reprodutivo}</span>
-                          : <span className="text-gray-300 text-xs">—</span>}
-                      </td>
-                      <td className="px-3 py-2 text-gray-600 hidden sm:table-cell">{a.raca}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2.5">
                         {(() => {
                           const key = a.marcacao === 'descarte' ? 'descarte' : a.marcacao === 'atencao' ? 'atencao' : a.status
                           return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${catColor[key] ?? ''}`}>{LABELS[key] ?? key}</span>
                         })()}
                       </td>
-                      <td className="px-3 py-2 text-gray-500 hidden md:table-cell">{(a.lote as any)?.nome ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              </div>
             )
         }
       </div>
@@ -977,7 +927,7 @@ export default function RebanhoPage() {
             </div>
             <div className="space-y-2 text-sm mb-5">
               {[
-                ['Categoria', LABELS[detail.categoria]],
+                ['Categoria', CAT_DISPLAY_LABEL[detail.categoria] ?? detail.categoria],
                 ['Raça', detail.raca],
                 ['Sexo', LABELS[detail.sexo]],
                 ['Origem', LABELS[detail.origem]],
