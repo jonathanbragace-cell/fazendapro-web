@@ -249,20 +249,21 @@ export default function LotesPage() {
       for (const a of anCom ?? []) {
         counts[a.lote_id] = (counts[a.lote_id] ?? 0) + 1
       }
-      // Hybrid cost: sum all saida lancamentos + valor_compra for animals without per-animal lancamento
-      // (valor_compra only as extra fallback when there are no batch lancamentos)
+      // Per-animal cost: for each animal, use its per-animal lancamento if present, else valor_compra
       const allLids = new Set([...Object.keys(finByLote), ...Object.keys(anByLote)])
       for (const lid of allLids) {
         const loteFinList = finByLote[lid] ?? []
-        const perAnimalLancs = loteFinList.filter(f => f.tipo === 'saida' && f.animal_id)
-        const batchLancs = loteFinList.filter(f => f.tipo === 'saida' && !f.animal_id)
-        const perAnimalTotal = perAnimalLancs.reduce((s, f) => s + f.valor, 0)
-        const batchTotal = batchLancs.reduce((s, f) => s + f.valor, 0)
-        const withLanc = new Set(perAnimalLancs.map(f => f.animal_id).filter(Boolean))
-        const vcFallback = batchTotal === 0
-          ? (anByLote[lid] ?? []).filter(a => !withLanc.has(a.id) && a.valor_compra).reduce((s, a) => s + (a.valor_compra ?? 0), 0)
-          : 0
-        custos[lid] = perAnimalTotal + batchTotal + vcFallback
+        const loteAnimalList = anByLote[lid] ?? []
+        const lancByAnimalId = new Map<string, number>()
+        for (const f of loteFinList) {
+          if (f.tipo === 'saida' && f.animal_id) {
+            lancByAnimalId.set(f.animal_id, (lancByAnimalId.get(f.animal_id) ?? 0) + f.valor)
+          }
+        }
+        custos[lid] = loteAnimalList.reduce((s, a) => {
+          if (lancByAnimalId.has(a.id)) return s + lancByAnimalId.get(a.id)!
+          return s + (a.valor_compra ?? 0)
+        }, 0)
       }
     }
 
@@ -892,15 +893,16 @@ export default function LotesPage() {
 
   // ── DETALHE ──
   if (selected) {
-    const perAnimalLancs = lancamentos.filter(l => l.tipo === 'saida' && l.animal_id)
-    const batchLancs = lancamentos.filter(l => l.tipo === 'saida' && !l.animal_id)
-    const perAnimalTotal = perAnimalLancs.reduce((s, l) => s + Number(l.valor), 0)
-    const batchTotal = batchLancs.reduce((s, l) => s + Number(l.valor), 0)
-    const animalsWithLanc = new Set(perAnimalLancs.map(l => l.animal_id).filter(Boolean))
-    const custosVcFallback = batchTotal === 0
-      ? animais.filter(a => !animalsWithLanc.has(a.id) && a.valor_compra).reduce((s, a) => s + Number(a.valor_compra), 0)
-      : 0
-    const custosTotal = perAnimalTotal + batchTotal + custosVcFallback
+    const lancByAnimalId = new Map<string, number>()
+    for (const l of lancamentos) {
+      if (l.tipo === 'saida' && l.animal_id) {
+        lancByAnimalId.set(l.animal_id, (lancByAnimalId.get(l.animal_id) ?? 0) + Number(l.valor))
+      }
+    }
+    const custosTotal = animais.reduce((s, a) => {
+      if (lancByAnimalId.has(a.id)) return s + lancByAnimalId.get(a.id)!
+      return s + (a.valor_compra ? Number(a.valor_compra) : 0)
+    }, 0)
     const custoPorCabeca = animais.length > 0 ? custosTotal / animais.length : null
 
     const totCusto = animaisCom.reduce((s, a) => s + (computeAnimalCom(a, selected).custo ?? 0), 0)
