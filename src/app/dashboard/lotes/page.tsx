@@ -128,6 +128,10 @@ const EMPTY_HEADER_COM = {
 }
 const EMPTY_DESPESA = { tipo: 'frete', descricao: '', valor: '' }
 
+const CAT_COMPRA   = 'Compra — lote comercial'
+const CAT_VENDA    = 'Venda — lote comercial'
+const CAT_DESPESAS = 'Despesas — lote comercial'
+
 function TipoChip({ tipo }: { tipo: string | null }) {
   if (!tipo) return <span className="text-gray-400">—</span>
   const label = TIPO_LABEL[tipo] ?? tipo
@@ -266,19 +270,30 @@ export default function LotesPage() {
     setLoadingDetail(false)
   }
 
-  async function loadAnimaisCom(loteId: string) {
+  async function loadAnimaisCom(loteId: string): Promise<LoteAnimalCom[]> {
     const { data } = await supabase
       .from('lote_animais_comerciais')
       .select('id, lote_id, identificacao, peso_vivo_kg, desconto_pct, preco_compra_kg, peso_morto_kg, preco_venda_kg, tipo_compra')
       .eq('lote_id', loteId).order('created_at')
-    setAnimaisCom(data ?? [])
+    const list = (data ?? []) as LoteAnimalCom[]
+    setAnimaisCom(list)
+    return list
   }
 
-  async function loadDespesas(loteId: string) {
+  async function loadDespesas(loteId: string): Promise<LoteDespesa[]> {
     const { data } = await supabase.from('lote_despesas')
       .select('id, lote_id, tipo, descricao, valor')
       .eq('lote_id', loteId).order('created_at')
-    setDespesas(data ?? [])
+    const list = (data ?? []) as LoteDespesa[]
+    setDespesas(list)
+    return list
+  }
+
+  async function reloadLancamentos(loteId: string) {
+    const { data } = await supabase
+      .from('financeiro').select('id, descricao, tipo, valor, data, categoria')
+      .eq('lote_id', loteId).order('data', { ascending: false })
+    setLancamentos(data ?? [])
   }
 
   useEffect(() => { load() }, [situFiltro]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -366,9 +381,11 @@ export default function LotesPage() {
     }
     const { error } = await supabase.from('lotes').update(payload).eq('id', selected.id)
     if (!error) {
-      setSelected(prev => prev ? { ...prev, ...payload } : prev)
+      const updatedLote = { ...selected, ...payload }
+      setSelected(updatedLote)
       setEditingHeader(false)
       load()
+      await syncLoteFinanceiro(updatedLote, animaisCom, despesas)
     } else {
       alert(`Erro: ${error.message}`)
     }
@@ -418,14 +435,16 @@ export default function LotesPage() {
     setOpenAnimalCom(false)
     setAnimalComForm({ ...EMPTY_ANIMAL_COM })
     setEditingAnimalComId(null)
-    await loadAnimaisCom(selected.id)
+    const freshAnimais = await loadAnimaisCom(selected.id)
+    await syncLoteFinanceiro(selected, freshAnimais, despesas)
     setSavingAnimalCom(false)
   }
 
   async function excluirAnimalCom(id: string) {
     if (!confirm('Excluir este animal?')) return
     await supabase.from('lote_animais_comerciais').delete().eq('id', id)
-    setAnimaisCom(prev => prev.filter(a => a.id !== id))
+    const freshAnimais = await loadAnimaisCom(selected!.id)
+    await syncLoteFinanceiro(selected!, freshAnimais, despesas)
   }
 
   async function salvarDespesa() {
@@ -440,14 +459,17 @@ export default function LotesPage() {
     if (error) { alert(`Erro: ${error.message}`); setSavingDespesa(false); return }
     setOpenDespesa(false)
     setDespesaForm({ ...EMPTY_DESPESA })
-    await loadDespesas(selected.id)
+    const freshDesp = await loadDespesas(selected.id)
+    await syncLoteFinanceiro(selected, animaisCom, freshDesp)
     setSavingDespesa(false)
   }
 
   async function excluirDespesa(id: string) {
     if (!confirm('Excluir esta despesa?')) return
     await supabase.from('lote_despesas').delete().eq('id', id)
-    setDespesas(prev => prev.filter(d => d.id !== id))
+    const freshDesp = despesas.filter(d => d.id !== id)
+    setDespesas(freshDesp)
+    await syncLoteFinanceiro(selected!, animaisCom, freshDesp)
   }
 
   async function togglePago() {
@@ -455,6 +477,9 @@ export default function LotesPage() {
     const newVal = !selected.pago
     const update = { pago: newVal, data_pago_efetivo: newVal ? hoje() : null }
     await supabase.from('lotes').update(update).eq('id', selected.id)
+    await supabase.from('financeiro')
+      .update({ status: newVal ? 'pago' : 'pendente', data: newVal ? hoje() : (selected.data_compra ?? hoje()) })
+      .eq('lote_id', selected.id).eq('categoria', CAT_COMPRA)
     setSelected(prev => prev ? { ...prev, ...update } : prev)
   }
 
@@ -463,6 +488,9 @@ export default function LotesPage() {
     const newVal = !selected.recebido
     const update = { recebido: newVal, data_recebido_efetivo: newVal ? hoje() : null }
     await supabase.from('lotes').update(update).eq('id', selected.id)
+    await supabase.from('financeiro')
+      .update({ status: newVal ? 'recebido' : 'pendente', data: newVal ? hoje() : (selected.data_venda ?? hoje()) })
+      .eq('lote_id', selected.id).eq('categoria', CAT_VENDA)
     setSelected(prev => prev ? { ...prev, ...update } : prev)
   }
 
@@ -535,6 +563,76 @@ export default function LotesPage() {
       alert(`Erro: ${error.message}`)
     }
     setSavingLanc(false)
+  }
+
+  async function syncLoteFinanceiro(lote: Lote, animals: LoteAnimalCom[], despList: LoteDespesa[]) {
+    if (!lote.fazenda_id) return
+    const addDays = (date: string | null, days: number | null): string | null => {
+      if (!date || days == null) return null
+      const d = new Date(date); d.setDate(d.getDate() + days)
+      return d.toISOString().split('T')[0]
+    }
+    const totCusto = r2(animals.reduce((s, a) => s + (computeAnimalCom(a, lote).custo ?? 0), 0))
+    const totVenda = r2(animals.reduce((s, a) => s + (computeAnimalCom(a, lote).venda ?? 0), 0))
+    const totDesp  = r2(despList.reduce((s, d) => s + Number(d.valor), 0))
+    const vencCompra = addDays(lote.data_compra, lote.prazo_pagamento_dias)
+    const vencVenda  = addDays(lote.data_venda, lote.prazo_recebimento_dias)
+    const faz = lote.fazenda_id
+
+    // helper: upsert by (lote_id, categoria)
+    const upsertFin = async (categoria: string, payload: Record<string, unknown>) => {
+      const { data: ex } = await supabase.from('financeiro')
+        .select('id').eq('lote_id', lote.id).eq('categoria', categoria).maybeSingle()
+      if (ex) {
+        await supabase.from('financeiro').update(payload).eq('id', ex.id)
+      } else {
+        await supabase.from('financeiro').insert({ ...payload, fazenda_id: faz, lote_id: lote.id, categoria })
+      }
+    }
+    const deleteFin = async (categoria: string) => {
+      await supabase.from('financeiro').delete().eq('lote_id', lote.id).eq('categoria', categoria)
+    }
+
+    // Conta a pagar — compra
+    if (totCusto > 0) {
+      await upsertFin(CAT_COMPRA, {
+        tipo: 'saida', valor: totCusto,
+        data: lote.data_compra ?? hoje(),
+        descricao: lote.fornecedor ? `Compra — ${lote.fornecedor}` : CAT_COMPRA,
+        status: lote.pago ? 'pago' : 'pendente',
+        data_vencimento: vencCompra,
+      })
+    } else {
+      await deleteFin(CAT_COMPRA)
+    }
+
+    // Conta a receber — venda
+    if (totVenda > 0) {
+      await upsertFin(CAT_VENDA, {
+        tipo: 'entrada', valor: totVenda,
+        data: lote.data_venda ?? hoje(),
+        descricao: lote.comprador ? `Venda — ${lote.comprador}` : CAT_VENDA,
+        status: lote.recebido ? 'recebido' : 'pendente',
+        data_vencimento: vencVenda,
+      })
+    } else {
+      await deleteFin(CAT_VENDA)
+    }
+
+    // Despesas — conta a pagar agregada
+    if (totDesp > 0) {
+      await upsertFin(CAT_DESPESAS, {
+        tipo: 'saida', valor: totDesp,
+        data: lote.data_compra ?? hoje(),
+        descricao: CAT_DESPESAS,
+        status: 'pendente',
+        data_vencimento: vencCompra,
+      })
+    } else {
+      await deleteFin(CAT_DESPESAS)
+    }
+
+    await reloadLancamentos(lote.id)
   }
 
   function gerarRelatorio() {

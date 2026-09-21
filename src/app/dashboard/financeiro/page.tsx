@@ -188,6 +188,13 @@ export default function FinanceiroPage() {
   async function marcarPago(mov: Mov) {
     const novoStatus = mov.tipo === 'entrada' ? 'recebido' : 'pago'
     await supabase.from('financeiro').update({ status: novoStatus, data: hoje() }).eq('id', mov.id)
+    if (mov.lote_id) {
+      if (mov.categoria === 'Compra — lote comercial') {
+        await supabase.from('lotes').update({ pago: true, data_pago_efetivo: hoje() }).eq('id', mov.lote_id)
+      } else if (mov.categoria === 'Venda — lote comercial') {
+        await supabase.from('lotes').update({ recebido: true, data_recebido_efetivo: hoje() }).eq('id', mov.lote_id)
+      }
+    }
     load()
   }
 
