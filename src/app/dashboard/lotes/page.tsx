@@ -87,6 +87,11 @@ export default function LotesPage() {
   const [saving, setSaving]     = useState(false)
   const [form, setForm]         = useState({ ...EMPTY_LOTE })
 
+  // Novo lançamento
+  const [openLanc, setOpenLanc]       = useState(false)
+  const [savingLanc, setSavingLanc]   = useState(false)
+  const [lancForm, setLancForm]       = useState({ tipo: 'saida', valor: '', descricao: '', categoria: '', data: hoje() })
+
   // Add animals dialog
   const [openAdd, setOpenAdd]         = useState(false)
   const [addSearch, setAddSearch]     = useState('')
@@ -260,6 +265,33 @@ export default function LotesPage() {
     load()
   }
 
+  async function salvarLanc() {
+    if (!selected || !lancForm.valor) { alert('Valor é obrigatório.'); return }
+    setSavingLanc(true)
+    const { error } = await supabase.from('financeiro').insert({
+      lote_id: selected.id,
+      fazenda_id: selected.fazenda_id,
+      tipo: lancForm.tipo,
+      valor: parseFloat(lancForm.valor.replace(',', '.')),
+      data: lancForm.data || hoje(),
+      descricao: lancForm.descricao.trim() || null,
+      categoria: lancForm.categoria.trim() || null,
+      status: 'pago',
+    })
+    if (!error) {
+      setOpenLanc(false)
+      setLancForm({ tipo: 'saida', valor: '', descricao: '', categoria: '', data: hoje() })
+      const { data: fin } = await supabase
+        .from('financeiro').select('id, descricao, tipo, valor, data, categoria')
+        .eq('lote_id', selected.id).order('data', { ascending: false })
+      setLancamentos(fin ?? [])
+      load()
+    } else {
+      alert(`Erro: ${error.message}`)
+    }
+    setSavingLanc(false)
+  }
+
   // ── DETALHE ──
   if (selected) {
     const custosTotal = lancamentos
@@ -390,9 +422,15 @@ export default function LotesPage() {
 
             {/* Histórico financeiro */}
             <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">
-                Histórico financeiro
-              </p>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Histórico financeiro</p>
+                <button
+                  onClick={() => { setLancForm({ tipo: 'saida', valor: '', descricao: '', categoria: '', data: hoje() }); setOpenLanc(true) }}
+                  className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
+                >
+                  <Plus size={12} /> Lançamento
+                </button>
+              </div>
               {lancamentos.length === 0 && (
                 <p className="text-sm text-gray-400">Nenhum lançamento vinculado.</p>
               )}
@@ -483,6 +521,50 @@ export default function LotesPage() {
                   {savingAdd ? 'Adicionando...' : `Adicionar${addIds.size > 0 ? ` (${addIds.size})` : ''}`}
                 </Button>
               </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog novo lançamento */}
+        <Dialog open={openLanc} onOpenChange={setOpenLanc}>
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Novo lançamento — {selected?.nome}</DialogTitle></DialogHeader>
+            <div className="space-y-3 pt-2">
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Tipo</label>
+                <div className="flex gap-2">
+                  {(['saida', 'entrada'] as const).map(t => (
+                    <button key={t} type="button"
+                      onClick={() => setLancForm(p => ({ ...p, tipo: t }))}
+                      className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${lancForm.tipo === t ? (t === 'saida' ? 'bg-red-600 text-white border-red-600' : 'bg-green-700 text-white border-green-700') : 'border-gray-200 text-gray-600'}`}>
+                      {t === 'saida' ? 'Saída (custo)' : 'Entrada (receita)'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Valor (R$)</label>
+                <Input placeholder="0,00" inputMode="decimal"
+                  value={lancForm.valor} onChange={e => setLancForm(p => ({ ...p, valor: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Data</label>
+                <Input type="date" value={lancForm.data}
+                  onChange={e => setLancForm(p => ({ ...p, data: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Descrição</label>
+                <Input placeholder="Ex: Frete, Ração, Vacina..." value={lancForm.descricao}
+                  onChange={e => setLancForm(p => ({ ...p, descricao: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Categoria</label>
+                <Input placeholder="Ex: frete, alimentacao, medicamento..." value={lancForm.categoria}
+                  onChange={e => setLancForm(p => ({ ...p, categoria: e.target.value }))} />
+              </div>
+              <Button className="w-full bg-green-700 hover:bg-green-800" onClick={salvarLanc} disabled={savingLanc}>
+                {savingLanc ? 'Salvando...' : 'Salvar lançamento'}
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
