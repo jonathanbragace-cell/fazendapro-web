@@ -612,6 +612,25 @@ export default function LotesPage() {
       await supabase.from('pesagens').insert(pesagemRows as any)
     }
 
+    if (avulsoOrigem === 'compra' && valorUnit && inserted && inserted.length > 0) {
+      const venc = new Date(dataNasc)
+      venc.setDate(venc.getDate() + 30)
+      const vencStr = venc.toISOString().split('T')[0]
+      const fornDesc = avulsoFornecedor.trim()
+      const finRows = (inserted as { id: string }[]).map(a => ({
+        fazenda_id: selected.fazenda_id,
+        tipo: 'saida',
+        categoria: 'Compra de animal',
+        valor: valorUnit,
+        data: dataNasc,
+        descricao: fornDesc ? `Compra — ${fornDesc}` : 'Compra de animal',
+        status: 'pendente',
+        data_vencimento: vencStr,
+        animal_id: a.id,
+      }))
+      await supabase.from('financeiro').insert(finRows as any)
+    }
+
     setSavingAdd(false)
     setOpenAdd(false)
     setAvulsoQtd('')

@@ -45,7 +45,7 @@ const catColor: Record<string, string> = {
 
 const EMPTY = {
   brinco:'', nome:'', data_nascimento:'', sexo:'femea', raca:'Nelore',
-  categoria:'bezerro', origem:'nascimento', valor_compra:'', status_reprodutivo:'', observacao:'', lote_id:'', fazenda_id:'', mae_brinco:'',
+  categoria:'bezerro', origem:'nascimento', valor_compra:'', fornecedor:'', status_reprodutivo:'', observacao:'', lote_id:'', fazenda_id:'', mae_brinco:'',
 }
 
 export default function RebanhoPage() {
@@ -234,6 +234,7 @@ export default function RebanhoPage() {
       brinco: a.brinco, nome: a.nome ?? '', data_nascimento: a.data_nascimento,
       sexo: a.sexo, raca: a.raca, categoria: a.categoria, origem: a.origem,
       status_reprodutivo: a.status_reprodutivo ?? '', valor_compra: a.valor_compra ? String(a.valor_compra) : '',
+      fornecedor: (a as any).fornecedor ?? '',
       observacao: a.observacao ?? '', lote_id: (a.lote as any)?.id ?? '', fazenda_id: a.fazenda_id, mae_brinco: a.mae?.brinco ?? '',
     })
     setOpen(true)
@@ -289,6 +290,7 @@ export default function RebanhoPage() {
       sexo: form.sexo, raca: form.raca, categoria: form.categoria,
       origem: form.origem, status_reprodutivo: form.categoria === 'matriz' ? (form.status_reprodutivo || null) : null,
       valor_compra: form.origem === 'compra' && form.valor_compra ? parseFloat(form.valor_compra.replace(',', '.')) : null,
+      fornecedor: form.origem === 'compra' && form.fornecedor.trim() ? form.fornecedor.trim() : null,
       observacao: form.observacao.trim() || null,
       lote_id: form.lote_id || null, fazenda_id: fid,
       status: 'ativo',
@@ -302,26 +304,43 @@ export default function RebanhoPage() {
     }
 
     let error
-    // Try save, if schema missing (e.g. valor_compra) retry without that field
+    let insertedId: string | null = null
     if (editing) {
       ({ error } = await supabase.from('animais').update(payload).eq('id', editing.id))
-      if (error && /Could not find the 'valor_compra' column|PGRST204/.test(error.message + (error.code ?? ''))) {
-        const p = { ...payload }
-        delete p.valor_compra
+      if (error && /valor_compra|PGRST204/.test(error.message + (error.code ?? ''))) {
+        const p = { ...payload }; delete p.valor_compra; delete p.fornecedor
         ;({ error } = await supabase.from('animais').update(p).eq('id', editing.id))
       }
     } else {
-      ({ error } = await supabase.from('animais').insert(payload))
-      if (error && /Could not find the 'valor_compra' column|PGRST204/.test(error.message + (error.code ?? ''))) {
-        const p = { ...payload }
-        delete p.valor_compra
-        ;({ error } = await supabase.from('animais').insert(p))
+      const { data: na, error: e1 } = await supabase.from('animais').insert(payload).select('id').single()
+      if (e1 && /valor_compra|PGRST204/.test(e1.message + (e1.code ?? ''))) {
+        const p = { ...payload }; delete p.valor_compra; delete p.fornecedor
+        const { data: na2, error: e2 } = await supabase.from('animais').insert(p).select('id').single()
+        error = e2; insertedId = na2?.id ?? null
+      } else {
+        error = e1; insertedId = na?.id ?? null
       }
     }
     if (error) {
       alert(`Erro ao salvar: ${error.message}\nCódigo: ${error.code}\nDetalhe: ${error.details ?? '—'}`)
       setSaving(false)
       return
+    }
+    // Criar conta a pagar para nova compra
+    if (!editing && insertedId && payload.origem === 'compra' && payload.valor_compra) {
+      const venc = new Date(dataNasc)
+      venc.setDate(venc.getDate() + 30)
+      await supabase.from('financeiro').insert({
+        fazenda_id: fid,
+        tipo: 'saida',
+        categoria: 'Compra de animal',
+        valor: payload.valor_compra,
+        data: dataNasc,
+        descricao: payload.fornecedor ? `Compra — ${payload.fornecedor}` : `Compra — ${brinco}`,
+        status: 'pendente',
+        data_vencimento: venc.toISOString().split('T')[0],
+        animal_id: insertedId,
+      })
     }
     // Ao cadastrar novo bezerro com mãe vinculada, atualizar status da mãe para lactando
     if (!editing && maeId) {
@@ -858,17 +877,18 @@ export default function RebanhoPage() {
                 </button>)}
               </div>
             </div>
-            {form.origem === 'compra' && (
+            {form.origem === 'compra' && (<>
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Preço de compra</label>
-                <Input
-                  placeholder="0,00"
-                  value={form.valor_compra}
-                  onChange={e => f('valor_compra', e.target.value)}
-                  inputMode="decimal"
-                />
+                <Input placeholder="0,00" value={form.valor_compra}
+                  onChange={e => f('valor_compra', e.target.value)} inputMode="decimal" />
               </div>
-            )}
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Fornecedor</label>
+                <Input placeholder="Nome do fornecedor" value={form.fornecedor}
+                  onChange={e => f('fornecedor', e.target.value)} />
+              </div>
+            </>)}
             {form.categoria === 'matriz' && (
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Matriz</label>
