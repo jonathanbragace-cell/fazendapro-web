@@ -25,29 +25,33 @@ const SEXOS         = ['femea', 'macho']
 const ORIGENS       = ['nascimento', 'compra']
 const DEFAULT_RACAS = ['Nelore', 'Girolando', 'Gir', 'Angus', 'Brahman', 'Tabapuã', 'Mestiço', 'Outra']
 const LABELS: Record<string, string> = {
-  matriz:'Matriz', bezerro:'Bezerro', garrote:'Garrote/Novilho', novilha:'Novilha', touro:'Touro', boi:'Boi',
+  matriz:'Matriz', bezerro:'Bezerro', bezerra:'Bezerra', garrote:'Garrote/Novilho', garrota:'Garrota',
+  novilho:'Novilho', novilha:'Novilha', touro:'Touro', boi:'Boi',
   femea:'Fêmea', macho:'Macho', nascimento:'Nascimento', compra:'Compra',
   ativo:'Ativo', vendido:'Vendido', morto:'Morto', descarte:'Descarte', atencao:'Atenção',
   gestante:'Prenha', lactando:'Lactando', vazia:'Vazia', em_diagnostico:'Em diag.',
 }
-// Categorias agrupadas por chip
+// Categorias individuais para formulários
+const FORM_CATS = ['matriz', 'bezerro', 'bezerra', 'garrote', 'garrota', 'novilho', 'novilha', 'touro', 'boi']
+// Categorias agrupadas por chip (filtros)
 const CAT_CHIP_GROUPS: Record<string, string[]> = {
   bezerro: ['bezerro', 'bezerra'],
-  garrote: ['garrote', 'novilho'],
+  garrote: ['garrote', 'garrota', 'novilho'],
 }
 
 const catColor: Record<string, string> = {
   matriz:'bg-green-100 text-green-800', bezerro:'bg-blue-100 text-blue-800',
   bezerra:'bg-pink-100 text-pink-700', garrote:'bg-yellow-100 text-yellow-800',
-  novilho:'bg-yellow-100 text-yellow-800', novilha:'bg-yellow-100 text-yellow-800',
+  garrota:'bg-pink-100 text-pink-700', novilho:'bg-yellow-100 text-yellow-800',
+  novilha:'bg-yellow-100 text-yellow-800',
   touro:'bg-gray-100 text-gray-800', boi:'bg-gray-100 text-gray-700',
   ativo:'bg-green-100 text-green-800', vendido:'bg-gray-100 text-gray-600', morto:'bg-red-100 text-red-700', descarte:'bg-orange-100 text-orange-700', atencao:'bg-yellow-100 text-yellow-700',
   gestante:'bg-pink-100 text-pink-800', vazia:'bg-gray-100 text-gray-500', lactando:'bg-blue-100 text-blue-700', em_diagnostico:'bg-yellow-100 text-yellow-700',
 }
 // Label individual de cada categoria (não o nome do chip-filtro)
 const CAT_DISPLAY_LABEL: Record<string, string> = {
-  bezerro:'♂ Bezerro', bezerra:'♀ Bezerra', garrote:'Garrote', novilho:'Novilho',
-  novilha:'Novilha', matriz:'Matriz', touro:'Touro', boi:'Boi',
+  bezerro:'♂ Bezerro', bezerra:'♀ Bezerra', garrote:'Garrote', garrota:'♀ Garrota',
+  novilho:'Novilho', novilha:'Novilha', matriz:'Matriz', touro:'Touro', boi:'Boi',
 }
 
 const EMPTY = {
@@ -153,7 +157,7 @@ export default function RebanhoPage() {
       newCounts[''] = (newCounts[''] ?? 0) + 1
       // Map grouped categories to their chip key
       const chipCat = a.categoria === 'bezerra' ? 'bezerro'
-        : a.categoria === 'novilho' ? 'garrote'
+        : (a.categoria === 'novilho' || a.categoria === 'garrota') ? 'garrote'
         : a.categoria
       newCounts[chipCat] = (newCounts[chipCat] ?? 0) + 1
       if (a.status_reprodutivo) newRepro[a.status_reprodutivo] = (newRepro[a.status_reprodutivo] ?? 0) + 1
@@ -161,7 +165,7 @@ export default function RebanhoPage() {
         newSexo[''] = (newSexo[''] ?? 0) + 1
         newSexo[a.sexo] = (newSexo[a.sexo] ?? 0) + 1
       }
-      if (['garrote', 'novilho'].includes(a.categoria)) {
+      if (['garrote', 'garrota', 'novilho'].includes(a.categoria)) {
         newSexoGarrote[''] = (newSexoGarrote[''] ?? 0) + 1
         newSexoGarrote[a.sexo] = (newSexoGarrote[a.sexo] ?? 0) + 1
       }
@@ -813,7 +817,7 @@ export default function RebanhoPage() {
             <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">Categoria *</label>
               <div className="flex flex-wrap gap-2">
-                {CATS.map(c => <button key={c} type="button" onClick={() => setForm(prev => ({ ...prev, categoria: c, status_reprodutivo: c === 'matriz' ? prev.status_reprodutivo : '' }))}
+                {FORM_CATS.map(c => <button key={c} type="button" onClick={() => setForm(prev => ({ ...prev, categoria: c, status_reprodutivo: c === 'matriz' ? prev.status_reprodutivo : '' }))}
                   className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${form.categoria === c ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-600 hover:border-green-300'}`}>
                   {LABELS[c]}
                 </button>)}

@@ -44,6 +44,7 @@ const hoje = () => new Date().toISOString().split('T')[0]
 
 export default function FinanceiroPage() {
   const [movs, setMovs]             = useState<Mov[]>([])
+  const [kpiTotals, setKpiTotals]   = useState({ entradas: 0, saidas: 0, aPagar: 0, aReceber: 0 })
   const [pagamentosMap, setPagamentosMap] = useState<Record<string, Pagamento[]>>({})
   const [expandedMov, setExpandedMov] = useState<string | null>(null)
   const [fazendas, setFazendas]     = useState<Fazenda[]>([])
@@ -94,6 +95,16 @@ export default function FinanceiroPage() {
     const { data: lots } = await supabase.from('lotes').select('id, nome').order('nome')
     setLotes(lots ?? [])
     await carregarCats()
+
+    // Carregar totais para KPIs sempre sem filtro
+    const { data: allKpi } = await supabase.from('financeiro').select('tipo, valor, status')
+    const kpiPagos = (allKpi ?? []).filter((m: any) => m.status !== 'pendente')
+    setKpiTotals({
+      entradas:  kpiPagos.filter((m: any) => m.tipo === 'entrada').reduce((s: number, m: any) => s + Number(m.valor), 0),
+      saidas:    kpiPagos.filter((m: any) => m.tipo === 'saida').reduce((s: number, m: any) => s + Number(m.valor), 0),
+      aPagar:    (allKpi ?? []).filter((m: any) => m.status === 'pendente' && m.tipo === 'saida').reduce((s: number, m: any) => s + Number(m.valor), 0),
+      aReceber:  (allKpi ?? []).filter((m: any) => m.status === 'pendente' && m.tipo === 'entrada').reduce((s: number, m: any) => s + Number(m.valor), 0),
+    })
 
     let q = supabase.from('financeiro').select('*').order('data', { ascending: false }).limit(200)
     if (filter === 'entrada')   q = q.eq('tipo', 'entrada').neq('status', 'pendente')
@@ -304,12 +315,11 @@ export default function FinanceiroPage() {
     setAddingCat(false); setNovaCat(''); setOpen(true)
   }
 
-  const pagos     = movs.filter(m => m.status !== 'pendente')
-  const totEntradas = pagos.filter(m => m.tipo === 'entrada').reduce((s,m) => s + m.valor, 0)
-  const totSaidas   = pagos.filter(m => m.tipo === 'saida').reduce((s,m) => s + m.valor, 0)
-  // KPIs use saldo restante (valor - já pago)
-  const totAPagar   = movs.filter(m => m.status === 'pendente' && m.tipo === 'saida').reduce((s,m) => s + getSaldo(m), 0)
-  const totAReceber = movs.filter(m => m.status === 'pendente' && m.tipo === 'entrada').reduce((s,m) => s + getSaldo(m), 0)
+  // KPIs sempre do total geral (independente do filtro ativo)
+  const totEntradas = kpiTotals.entradas
+  const totSaidas   = kpiTotals.saidas
+  const totAPagar   = kpiTotals.aPagar
+  const totAReceber = kpiTotals.aReceber
   const saldo = totEntradas - totSaidas
 
   const FILTERS: { key: Filter; label: string }[] = [

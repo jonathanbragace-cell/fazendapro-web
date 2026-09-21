@@ -75,13 +75,13 @@ const TIPO_COLOR: Record<string, string> = {
   descarte:  'bg-red-100 text-red-700',
 }
 const CAT_LABEL: Record<string, string> = {
-  matriz: 'Matriz', bezerro: 'Bezerro', bezerra: 'Bezerra', garrote: 'Garrote',
+  matriz: 'Matriz', bezerro: 'Bezerro', bezerra: 'Bezerra', garrote: 'Garrote', garrota: 'Garrota',
   novilho: 'Novilho', novilha: 'Novilha', touro: 'Touro', boi: 'Boi',
 }
 const DEFAULT_RACAS = ['Nelore', 'Girolando', 'Gir', 'Angus', 'Brahman', 'Tabapuã', 'Mestiço', 'Outra']
-const AVULSO_CATS = ['boi', 'novilho', 'garrote', 'bezerro', 'bezerra', 'novilha', 'matriz', 'touro'] as const
+const AVULSO_CATS = ['boi', 'novilho', 'garrote', 'garrota', 'bezerro', 'bezerra', 'novilha', 'matriz', 'touro'] as const
 const CAT_SEXO_DEFAULT: Record<string, string> = {
-  matriz: 'femea', bezerra: 'femea', novilha: 'femea',
+  matriz: 'femea', bezerra: 'femea', novilha: 'femea', garrota: 'femea',
   boi: 'macho', novilho: 'macho', garrote: 'macho', bezerro: 'macho', touro: 'macho',
 }
 const DESPESA_LABEL: Record<string, string> = {
