@@ -20,15 +20,20 @@ type Animal = {
 type Fazenda = { id: string; nome: string }
 type Lote    = { id: string; nome: string }
 
-const CATS          = ['matriz', 'bezerro', 'novilha', 'touro', 'boi']
+const CATS          = ['matriz', 'bezerro', 'garrote', 'novilha', 'touro', 'boi']
 const SEXOS         = ['femea', 'macho']
 const ORIGENS       = ['nascimento', 'compra']
 const DEFAULT_RACAS = ['Nelore', 'Girolando', 'Gir', 'Angus', 'Brahman', 'Tabapuã', 'Mestiço', 'Outra']
 const LABELS: Record<string, string> = {
-  matriz:'Matriz', bezerro:'Bezerro', novilha:'Novilha', touro:'Touro', boi:'Boi',
+  matriz:'Matriz', bezerro:'Bezerro', garrote:'Garrote/Novilho', novilha:'Novilha', touro:'Touro', boi:'Boi',
   femea:'Fêmea', macho:'Macho', nascimento:'Nascimento', compra:'Compra',
   ativo:'Ativo', vendido:'Vendido', morto:'Morto', descarte:'Descarte', atencao:'Atenção',
   gestante:'Prenha', lactando:'Lactando', vazia:'Vazia', em_diagnostico:'Em diag.',
+}
+// Categorias agrupadas por chip
+const CAT_CHIP_GROUPS: Record<string, string[]> = {
+  bezerro: ['bezerro', 'bezerra'],
+  garrote: ['garrote', 'novilho'],
 }
 
 const catColor: Record<string, string> = {
@@ -64,6 +69,7 @@ export default function RebanhoPage() {
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [reproCounts, setReproCounts] = useState<Record<string, number>>({})
   const [sexoCounts, setSexoCounts] = useState<Record<string, number>>({})
+  const [sexoCountsGarrote, setSexoCountsGarrote] = useState<Record<string, number>>({})
   const [descarteCount, setDescarteCount] = useState(0)
   const [perdaCount, setPerdaCount] = useState(0)
   const [atencaoCount, setAtencaoCount] = useState(0)
@@ -131,23 +137,33 @@ export default function RebanhoPage() {
     const newCounts: Record<string, number> = { '': 0 }
     const newRepro: Record<string, number> = { '': 0 }
     const newSexo: Record<string, number> = { '': 0 }
+    const newSexoGarrote: Record<string, number> = { '': 0 }
     let newDescarte = 0, newPerda = 0, newAtencao = 0
     for (const a of all ?? []) {
       if (a.status === 'morto') { newPerda++; continue }
       if (a.marcacao === 'descarte') newDescarte++
       if (a.marcacao === 'atencao') newAtencao++
       newCounts[''] = (newCounts[''] ?? 0) + 1
-      newCounts[a.categoria] = (newCounts[a.categoria] ?? 0) + 1
+      // Map grouped categories to their chip key
+      const chipCat = a.categoria === 'bezerra' ? 'bezerro'
+        : a.categoria === 'novilho' ? 'garrote'
+        : a.categoria
+      newCounts[chipCat] = (newCounts[chipCat] ?? 0) + 1
       if (a.status_reprodutivo) newRepro[a.status_reprodutivo] = (newRepro[a.status_reprodutivo] ?? 0) + 1
-      if (a.categoria === 'bezerro') {
+      if (['bezerro', 'bezerra'].includes(a.categoria)) {
         newSexo[''] = (newSexo[''] ?? 0) + 1
         newSexo[a.sexo] = (newSexo[a.sexo] ?? 0) + 1
+      }
+      if (['garrote', 'novilho'].includes(a.categoria)) {
+        newSexoGarrote[''] = (newSexoGarrote[''] ?? 0) + 1
+        newSexoGarrote[a.sexo] = (newSexoGarrote[a.sexo] ?? 0) + 1
       }
     }
     newRepro[''] = newCounts['matriz'] ?? 0
     setCounts(newCounts)
     setReproCounts(newRepro)
     setSexoCounts(newSexo)
+    setSexoCountsGarrote(newSexoGarrote)
     setDescarteCount(newDescarte)
     setPerdaCount(newPerda)
     setAtencaoCount(newAtencao)
@@ -161,9 +177,13 @@ export default function RebanhoPage() {
       q = q.eq('status', 'ativo').eq('marcacao', 'atencao')
     } else {
       q = q.eq('status', 'ativo')
-      if (catFilter) q = q.eq('categoria', catFilter)
+      if (catFilter) {
+        const group = CAT_CHIP_GROUPS[catFilter]
+        if (group) q = q.in('categoria', group)
+        else q = q.eq('categoria', catFilter)
+      }
       if (reproFilter) q = q.eq('status_reprodutivo', reproFilter)
-      if (sexoFilter && catFilter === 'bezerro') q = q.eq('sexo', sexoFilter)
+      if (sexoFilter && (catFilter === 'bezerro' || catFilter === 'garrote')) q = q.eq('sexo', sexoFilter)
     }
     if (search) q = q.ilike('brinco', `%${search}%`)
     if (loteFilter === 'sem_lote') {
@@ -554,6 +574,12 @@ export default function RebanhoPage() {
           <button key={s} onClick={() => setSexoFilter(s)}
             className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${sexoFilter === s ? (s === 'femea' ? 'bg-pink-400 text-white border-pink-400' : s === 'macho' ? 'bg-blue-500 text-white border-blue-500' : 'bg-green-700 text-white border-green-700') : 'bg-white text-gray-600 border-gray-200'}`}>
             {s === '' ? 'Todos' : s === 'femea' ? '♀ Fêmea' : '♂ Macho'}{sexoCounts[s] != null ? ` (${sexoCounts[s]})` : ''}
+          </button>
+        ))}
+        {catFilter === 'garrote' && (['', 'femea', 'macho'] as const).map(s => (
+          <button key={s} onClick={() => setSexoFilter(s)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${sexoFilter === s ? (s === 'femea' ? 'bg-pink-400 text-white border-pink-400' : s === 'macho' ? 'bg-blue-500 text-white border-blue-500' : 'bg-green-700 text-white border-green-700') : 'bg-white text-gray-600 border-gray-200'}`}>
+            {s === '' ? 'Todos' : s === 'femea' ? '♀ Fêmea' : '♂ Macho'}{sexoCountsGarrote[s] != null ? ` (${sexoCountsGarrote[s]})` : ''}
           </button>
         ))}
         <button onClick={() => { setCatFilter('descarte'); setReproFilter(''); setSexoFilter('') }}
