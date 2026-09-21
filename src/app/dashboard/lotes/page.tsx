@@ -31,17 +31,17 @@ type Lancamento = {
   valor: number; data: string | null; categoria: string | null
 }
 
-const TIPOS = ['cria', 'recria', 'engorda', 'quarentena', 'descarte']
+const TIPOS = ['cria', 'recria', 'engorda', 'comercial', 'descarte']
 const TIPO_LABEL: Record<string, string> = {
   cria: 'Cria', recria: 'Recria', engorda: 'Engorda',
-  quarentena: 'Quarentena', descarte: 'Descarte',
+  comercial: 'Comercial', descarte: 'Descarte',
 }
 const TIPO_COLOR: Record<string, string> = {
-  cria:       'bg-yellow-100 text-yellow-700',
-  recria:     'bg-blue-100 text-blue-700',
-  engorda:    'bg-green-100 text-green-700',
-  quarentena: 'bg-orange-100 text-orange-700',
-  descarte:   'bg-red-100 text-red-700',
+  cria:      'bg-yellow-100 text-yellow-700',
+  recria:    'bg-blue-100 text-blue-700',
+  engorda:   'bg-green-100 text-green-700',
+  comercial: 'bg-violet-100 text-violet-700',
+  descarte:  'bg-red-100 text-red-700',
 }
 const CAT_LABEL: Record<string, string> = {
   matriz:'Matriz', bezerro:'Bezerro', novilha:'Novilha', touro:'Touro', boi:'Boi',
