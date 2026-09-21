@@ -207,14 +207,18 @@ export default function LotesPage() {
     let custos: Record<string, number> = {}
     let counts: Record<string, number> = {}
     if (ids.length > 0) {
-      const [{ data: fin }, { data: an }] = await Promise.all([
+      const [{ data: fin }, { data: an }, { data: anCom }] = await Promise.all([
         supabase.from('financeiro').select('lote_id, tipo, valor').in('lote_id', ids),
         supabase.from('animais').select('lote_id').in('lote_id', ids).eq('status', 'ativo'),
+        supabase.from('lote_animais_comerciais').select('lote_id').in('lote_id', ids),
       ])
       for (const f of fin ?? []) {
         if (f.tipo === 'saida') custos[f.lote_id] = (custos[f.lote_id] ?? 0) + Number(f.valor)
       }
       for (const a of an ?? []) {
+        counts[a.lote_id] = (counts[a.lote_id] ?? 0) + 1
+      }
+      for (const a of anCom ?? []) {
         counts[a.lote_id] = (counts[a.lote_id] ?? 0) + 1
       }
     }
@@ -536,8 +540,16 @@ export default function LotesPage() {
 
   async function excluirLote() {
     if (!selected) return
-    if (!confirm(`Excluir "${selected.nome}"? Os animais neste lote ficam sem lote.`)) return
-    await supabase.from('lotes').delete().eq('id', selected.id)
+    if (!confirm(`Excluir "${selected.nome}"? Os animais do rebanho ficam sem lote e os dados financeiros vinculados serão removidos.`)) return
+    const lid = selected.id
+    await Promise.all([
+      supabase.from('animais').update({ lote_id: null } as any).eq('lote_id', lid),
+      supabase.from('lote_animais_comerciais').delete().eq('lote_id', lid),
+      supabase.from('lote_despesas').delete().eq('lote_id', lid),
+      supabase.from('financeiro').delete().eq('lote_id', lid),
+    ])
+    const { error } = await supabase.from('lotes').delete().eq('id', lid)
+    if (error) { alert(`Erro ao excluir: ${error.message}`); return }
     setSelected(null)
     load()
   }

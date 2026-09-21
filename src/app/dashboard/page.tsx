@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
-import { FazendaManager } from './fazenda-manager'
 
 type KPIs = {
   totalVivos: number
@@ -53,7 +52,7 @@ async function getKPIs(fazendaIds: string[]): Promise<KPIs | null> {
     addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('categoria', 'matriz').eq('status', 'ativo')),
     addF(supabase.from('animais').select('*', { count: 'exact', head: true }).in('categoria', ['matriz', 'novilha']).eq('status', 'ativo').or('marcacao.is.null,marcacao.neq.descarte')),
     addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('status_reprodutivo', 'gestante').eq('status', 'ativo')),
-    addF(supabase.from('reproducao').select('*', { count: 'exact', head: true }).eq('resultado_parto', 'vivo').gte('data_parto_real', inicioMes)),
+    addF(supabase.from('animais').select('*', { count: 'exact', head: true }).eq('categoria', 'bezerro').eq('origem', 'nascimento').eq('status', 'ativo').gte('data_nascimento', inicioMes)),
     addF(supabase.from('sanitario').select('*', { count: 'exact', head: true }).lte('proxima_aplicacao', hoje)),
     addF(supabase.from('sanitario').select('*', { count: 'exact', head: true }).not('proxima_aplicacao', 'is', null)),
     addF(supabase.from('estoque').select('quantidade, estoque_minimo')),
@@ -231,7 +230,6 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      <FazendaManager fazendas={fazendas ?? []} />
     </div>
   )
 }
