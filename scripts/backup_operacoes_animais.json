@@ -1,0 +1,79 @@
+[
+  {
+    "id": "f13057c6-28ba-444b-8066-220aef40c1c6",
+    "operacao_id": "19c1f782-86a7-41ef-bd21-22581e051c78",
+    "identificacao": "FEMEA",
+    "peso_vivo_kg": 383,
+    "desconto_pct": null,
+    "preco_compra_kg": null,
+    "peso_morto_kg": 185,
+    "preco_venda_kg": 20,
+    "created_at": "2026-09-21T00:08:36.727913+00:00"
+  },
+  {
+    "id": "f3fb6a4f-26c4-47c7-86cc-41c0d9b876ad",
+    "operacao_id": "19c1f782-86a7-41ef-bd21-22581e051c78",
+    "identificacao": "FEMEA",
+    "peso_vivo_kg": 382,
+    "desconto_pct": null,
+    "preco_compra_kg": null,
+    "peso_morto_kg": 179,
+    "preco_venda_kg": 20,
+    "created_at": "2026-09-21T00:08:36.727913+00:00"
+  },
+  {
+    "id": "fc85adf9-4c14-454d-903d-8f33f98d190d",
+    "operacao_id": "19c1f782-86a7-41ef-bd21-22581e051c78",
+    "identificacao": "FEMEA",
+    "peso_vivo_kg": 401,
+    "desconto_pct": null,
+    "preco_compra_kg": null,
+    "peso_morto_kg": 209,
+    "preco_venda_kg": 20,
+    "created_at": "2026-09-21T00:08:36.727913+00:00"
+  },
+  {
+    "id": "8e1b409c-2de0-4bb2-b51a-1e6258db3692",
+    "operacao_id": "19c1f782-86a7-41ef-bd21-22581e051c78",
+    "identificacao": "FEMEA",
+    "peso_vivo_kg": 472,
+    "desconto_pct": null,
+    "preco_compra_kg": null,
+    "peso_morto_kg": 223,
+    "preco_venda_kg": 20,
+    "created_at": "2026-09-21T00:08:36.727913+00:00"
+  },
+  {
+    "id": "442bed52-aeef-4f28-820f-dc991b99c001",
+    "operacao_id": "19c1f782-86a7-41ef-bd21-22581e051c78",
+    "identificacao": "FEMEA",
+    "peso_vivo_kg": 486,
+    "desconto_pct": null,
+    "preco_compra_kg": null,
+    "peso_morto_kg": 231,
+    "preco_venda_kg": 20,
+    "created_at": "2026-09-21T00:08:36.727913+00:00"
+  },
+  {
+    "id": "4043549b-b21f-4059-9b6a-26ff3d7e1d11",
+    "operacao_id": "19c1f782-86a7-41ef-bd21-22581e051c78",
+    "identificacao": "FEMEA-BOA",
+    "peso_vivo_kg": 487,
+    "desconto_pct": null,
+    "preco_compra_kg": null,
+    "peso_morto_kg": 235,
+    "preco_venda_kg": 20,
+    "created_at": "2026-09-21T00:08:36.727913+00:00"
+  },
+  {
+    "id": "5bbbe642-983f-4723-91a7-857f15378215",
+    "operacao_id": "19c1f782-86a7-41ef-bd21-22581e051c78",
+    "identificacao": "MACHO",
+    "peso_vivo_kg": 529,
+    "desconto_pct": null,
+    "preco_compra_kg": null,
+    "peso_morto_kg": 254,
+    "preco_venda_kg": 22,
+    "created_at": "2026-09-21T00:08:36.727913+00:00"
+  }
+]

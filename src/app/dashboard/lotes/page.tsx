@@ -5,11 +5,11 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ChevronLeft, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { ChevronLeft, Pencil, Plus, Search, X } from 'lucide-react'
 
 const supabase = createClient()
 
-type Fazenda  = { id: string; nome: string }
+type Fazenda = { id: string; nome: string }
 type Lote = {
   id: string
   fazenda_id: string | null
@@ -21,10 +21,32 @@ type Lote = {
   observacao: string | null
   total_animais?: number
   custo_total?: number
+  data_compra: string | null
+  fornecedor: string | null
+  desconto_pct: number | null
+  preco_compra_kg: number | null
+  prazo_pagamento_dias: number | null
+  prazo_recebimento_dias: number | null
+  data_venda: string | null
+  comprador: string | null
+  pago: boolean
+  data_pago_efetivo: string | null
+  recebido: boolean
+  data_recebido_efetivo: string | null
 }
 type Animal = {
   id: string; brinco: string; nome: string | null
   categoria: string; sexo: string; raca: string
+}
+type LoteAnimalCom = {
+  id: string
+  lote_id: string
+  identificacao: string | null
+  peso_vivo_kg: number | null
+  desconto_pct: number | null
+  preco_compra_kg: number | null
+  peso_morto_kg: number | null
+  preco_venda_kg: number | null
 }
 type Lancamento = {
   id: string; descricao: string | null; tipo: string
@@ -40,14 +62,15 @@ const TIPO_COLOR: Record<string, string> = {
   cria:      'bg-yellow-100 text-yellow-700',
   recria:    'bg-blue-100 text-blue-700',
   engorda:   'bg-green-100 text-green-700',
-  comercial: 'bg-violet-100 text-violet-700',
+  comercial: 'bg-orange-100 text-orange-700',
   descarte:  'bg-red-100 text-red-700',
 }
 const CAT_LABEL: Record<string, string> = {
-  matriz:'Matriz', bezerro:'Bezerro', novilha:'Novilha', touro:'Touro', boi:'Boi',
+  matriz: 'Matriz', bezerro: 'Bezerro', novilha: 'Novilha', touro: 'Touro', boi: 'Boi',
 }
 
-const fmt    = (v: number) =>
+const r2 = (v: number) => Math.round(v * 100) / 100
+const fmt = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 const fmtDate = (iso: string | null) => {
   if (!iso) return '—'
@@ -56,8 +79,30 @@ const fmtDate = (iso: string | null) => {
 }
 const hoje = () => new Date().toISOString().split('T')[0]
 
+function computeAnimalCom(
+  a: Pick<LoteAnimalCom, 'desconto_pct' | 'preco_compra_kg' | 'peso_vivo_kg' | 'peso_morto_kg' | 'preco_venda_kg'>,
+  lote: Lote
+) {
+  const desc = a.desconto_pct ?? lote.desconto_pct ?? 0
+  const precoCompra = a.preco_compra_kg ?? lote.preco_compra_kg ?? 0
+  const pesoDesc = a.peso_vivo_kg != null ? r2(a.peso_vivo_kg * (1 - desc / 100)) : null
+  const custo = pesoDesc != null && precoCompra ? r2(pesoDesc * precoCompra) : null
+  const venda = a.peso_morto_kg != null && a.preco_venda_kg != null
+    ? r2(a.peso_morto_kg * a.preco_venda_kg) : null
+  const lucro = custo != null && venda != null ? r2(venda - custo) : null
+  return { pesoDesc, custo, venda, lucro }
+}
+
 const EMPTY_LOTE = {
   nome: '', tipo: 'recria', situacao: 'ativo', fazenda_id: '', data_criacao: hoje(),
+}
+const EMPTY_ANIMAL_COM = {
+  identificacao: '', peso_vivo_kg: '', desconto_pct: '', preco_compra_kg: '',
+  peso_morto_kg: '', preco_venda_kg: '',
+}
+const EMPTY_HEADER_COM = {
+  data_compra: '', fornecedor: '', desconto_pct: '', preco_compra_kg: '',
+  prazo_pagamento_dias: '', prazo_recebimento_dias: '', data_venda: '', comprador: '',
 }
 
 function TipoChip({ tipo }: { tipo: string | null }) {
@@ -72,33 +117,41 @@ function TipoChip({ tipo }: { tipo: string | null }) {
 }
 
 export default function LotesPage() {
-  const [lotes, setLotes]       = useState<Lote[]>([])
+  const [lotes, setLotes] = useState<Lote[]>([])
   const [fazendas, setFazendas] = useState<Fazenda[]>([])
-  const [loading, setLoading]   = useState(true)
+  const [loading, setLoading] = useState(true)
   const [situFiltro, setSituFiltro] = useState<'ativo' | 'encerrado' | ''>('ativo')
 
   const [selected, setSelected] = useState<Lote | null>(null)
-  const [animais, setAnimais]   = useState<Animal[]>([])
+  const [animais, setAnimais] = useState<Animal[]>([])
+  const [animaisCom, setAnimaisCom] = useState<LoteAnimalCom[]>([])
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
   const [loadingDetail, setLoadingDetail] = useState(false)
 
-  const [openNew, setOpenNew]   = useState(false)
+  const [openNew, setOpenNew] = useState(false)
   const [openEdit, setOpenEdit] = useState(false)
-  const [saving, setSaving]     = useState(false)
-  const [form, setForm]         = useState({ ...EMPTY_LOTE })
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({ ...EMPTY_LOTE })
 
-  // Novo lançamento
-  const [openLanc, setOpenLanc]       = useState(false)
-  const [savingLanc, setSavingLanc]   = useState(false)
-  const [lancForm, setLancForm]       = useState({ tipo: 'saida', valor: '', descricao: '', categoria: '', data: hoje() })
+  const [editingHeader, setEditingHeader] = useState(false)
+  const [headerComForm, setHeaderComForm] = useState({ ...EMPTY_HEADER_COM })
+  const [savingHeader, setSavingHeader] = useState(false)
 
-  // Add animals dialog
-  const [openAdd, setOpenAdd]         = useState(false)
-  const [addSearch, setAddSearch]     = useState('')
+  const [openAnimalCom, setOpenAnimalCom] = useState(false)
+  const [animalComForm, setAnimalComForm] = useState({ ...EMPTY_ANIMAL_COM })
+  const [editingAnimalComId, setEditingAnimalComId] = useState<string | null>(null)
+  const [savingAnimalCom, setSavingAnimalCom] = useState(false)
+
+  const [openLanc, setOpenLanc] = useState(false)
+  const [savingLanc, setSavingLanc] = useState(false)
+  const [lancForm, setLancForm] = useState({ tipo: 'saida', valor: '', descricao: '', categoria: '', data: hoje() })
+
+  const [openAdd, setOpenAdd] = useState(false)
+  const [addSearch, setAddSearch] = useState('')
   const [addCatFilter, setAddCatFilter] = useState('')
   const [availAnimais, setAvailAnimais] = useState<Animal[]>([])
-  const [addIds, setAddIds]           = useState<Set<string>>(new Set())
-  const [savingAdd, setSavingAdd]     = useState(false)
+  const [addIds, setAddIds] = useState<Set<string>>(new Set())
+  const [savingAdd, setSavingAdd] = useState(false)
   const [loadingAvail, setLoadingAvail] = useState(false)
 
   async function load() {
@@ -108,7 +161,10 @@ export default function LotesPage() {
 
     let q = supabase
       .from('lotes')
-      .select('id, fazenda_id, nome, tipo, situacao, data_criacao, descricao, observacao')
+      .select(`id, fazenda_id, nome, tipo, situacao, data_criacao, descricao, observacao,
+        data_compra, fornecedor, desconto_pct, preco_compra_kg, prazo_pagamento_dias,
+        prazo_recebimento_dias, data_venda, comprador, pago, data_pago_efetivo,
+        recebido, data_recebido_efetivo`)
       .order('nome')
     if (situFiltro) q = (q as any).eq('situacao', situFiltro)
 
@@ -116,8 +172,8 @@ export default function LotesPage() {
     if (!data) { setLoading(false); return }
 
     const ids = data.map((l: any) => l.id)
-    let custos: Record<string, number>  = {}
-    let counts: Record<string, number>  = {}
+    let custos: Record<string, number> = {}
+    let counts: Record<string, number> = {}
     if (ids.length > 0) {
       const [{ data: fin }, { data: an }] = await Promise.all([
         supabase.from('financeiro').select('lote_id, tipo, valor').in('lote_id', ids),
@@ -137,6 +193,13 @@ export default function LotesPage() {
         situacao: l.situacao, data_criacao: l.data_criacao,
         descricao: l.descricao, observacao: l.observacao,
         total_animais: counts[l.id] ?? 0, custo_total: custos[l.id] ?? 0,
+        data_compra: l.data_compra, fornecedor: l.fornecedor,
+        desconto_pct: l.desconto_pct, preco_compra_kg: l.preco_compra_kg,
+        prazo_pagamento_dias: l.prazo_pagamento_dias,
+        prazo_recebimento_dias: l.prazo_recebimento_dias,
+        data_venda: l.data_venda, comprador: l.comprador,
+        pago: l.pago ?? false, data_pago_efetivo: l.data_pago_efetivo,
+        recebido: l.recebido ?? false, data_recebido_efetivo: l.data_recebido_efetivo,
       }))
     )
     setLoading(false)
@@ -145,24 +208,38 @@ export default function LotesPage() {
   async function openDetail(lote: Lote) {
     setLoadingDetail(true)
     setSelected(lote)
+    setAnimaisCom([])
+    setEditingHeader(false)
     window.scrollTo(0, 0)
 
     const [{ data: an }, { data: fin }] = await Promise.all([
-      supabase
-        .from('animais')
-        .select('id, brinco, nome, categoria, sexo, raca')
-        .eq('lote_id', lote.id)
-        .eq('status', 'ativo')
-        .order('brinco'),
-      supabase
-        .from('financeiro')
-        .select('id, descricao, tipo, valor, data, categoria')
-        .eq('lote_id', lote.id)
-        .order('data', { ascending: false }),
+      supabase.from('animais').select('id, brinco, nome, categoria, sexo, raca')
+        .eq('lote_id', lote.id).eq('status', 'ativo').order('brinco'),
+      supabase.from('financeiro').select('id, descricao, tipo, valor, data, categoria')
+        .eq('lote_id', lote.id).order('data', { ascending: false }),
     ])
     setAnimais(an ?? [])
     setLancamentos(fin ?? [])
+
+    if (lote.tipo === 'comercial') {
+      const { data: ac } = await supabase
+        .from('lote_animais_comerciais')
+        .select('id, lote_id, identificacao, peso_vivo_kg, desconto_pct, preco_compra_kg, peso_morto_kg, preco_venda_kg')
+        .eq('lote_id', lote.id)
+        .order('created_at')
+      setAnimaisCom(ac ?? [])
+    }
+
     setLoadingDetail(false)
+  }
+
+  async function loadAnimaisCom(loteId: string) {
+    const { data } = await supabase
+      .from('lote_animais_comerciais')
+      .select('id, lote_id, identificacao, peso_vivo_kg, desconto_pct, preco_compra_kg, peso_morto_kg, preco_venda_kg')
+      .eq('lote_id', loteId)
+      .order('created_at')
+    setAnimaisCom(data ?? [])
   }
 
   useEffect(() => { load() }, [situFiltro]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -220,6 +297,112 @@ export default function LotesPage() {
     setSaving(false)
   }
 
+  function openHeaderEdit() {
+    if (!selected) return
+    setHeaderComForm({
+      data_compra: selected.data_compra ?? '',
+      fornecedor: selected.fornecedor ?? '',
+      desconto_pct: selected.desconto_pct != null ? String(selected.desconto_pct) : '',
+      preco_compra_kg: selected.preco_compra_kg != null ? String(selected.preco_compra_kg) : '',
+      prazo_pagamento_dias: selected.prazo_pagamento_dias != null ? String(selected.prazo_pagamento_dias) : '',
+      prazo_recebimento_dias: selected.prazo_recebimento_dias != null ? String(selected.prazo_recebimento_dias) : '',
+      data_venda: selected.data_venda ?? '',
+      comprador: selected.comprador ?? '',
+    })
+    setEditingHeader(true)
+  }
+
+  async function salvarHeader() {
+    if (!selected) return
+    setSavingHeader(true)
+    const payload = {
+      data_compra: headerComForm.data_compra || null,
+      fornecedor: headerComForm.fornecedor.trim() || null,
+      desconto_pct: headerComForm.desconto_pct ? parseFloat(headerComForm.desconto_pct) : null,
+      preco_compra_kg: headerComForm.preco_compra_kg ? parseFloat(headerComForm.preco_compra_kg) : null,
+      prazo_pagamento_dias: headerComForm.prazo_pagamento_dias ? parseInt(headerComForm.prazo_pagamento_dias) : null,
+      prazo_recebimento_dias: headerComForm.prazo_recebimento_dias ? parseInt(headerComForm.prazo_recebimento_dias) : null,
+      data_venda: headerComForm.data_venda || null,
+      comprador: headerComForm.comprador.trim() || null,
+    }
+    const { error } = await supabase.from('lotes').update(payload).eq('id', selected.id)
+    if (!error) {
+      setSelected(prev => prev ? { ...prev, ...payload } : prev)
+      setEditingHeader(false)
+      load()
+    } else {
+      alert(`Erro: ${error.message}`)
+    }
+    setSavingHeader(false)
+  }
+
+  function openNewAnimalCom() {
+    setEditingAnimalComId(null)
+    setAnimalComForm({ ...EMPTY_ANIMAL_COM })
+    setOpenAnimalCom(true)
+  }
+
+  function openEditAnimalCom(a: LoteAnimalCom) {
+    setEditingAnimalComId(a.id)
+    setAnimalComForm({
+      identificacao: a.identificacao ?? '',
+      peso_vivo_kg: a.peso_vivo_kg != null ? String(a.peso_vivo_kg) : '',
+      desconto_pct: a.desconto_pct != null ? String(a.desconto_pct) : '',
+      preco_compra_kg: a.preco_compra_kg != null ? String(a.preco_compra_kg) : '',
+      peso_morto_kg: a.peso_morto_kg != null ? String(a.peso_morto_kg) : '',
+      preco_venda_kg: a.preco_venda_kg != null ? String(a.preco_venda_kg) : '',
+    })
+    setOpenAnimalCom(true)
+  }
+
+  async function salvarAnimalCom() {
+    if (!selected) return
+    setSavingAnimalCom(true)
+    const row = {
+      lote_id: selected.id,
+      identificacao: animalComForm.identificacao.trim() || null,
+      peso_vivo_kg: animalComForm.peso_vivo_kg ? parseFloat(animalComForm.peso_vivo_kg) : null,
+      desconto_pct: animalComForm.desconto_pct ? parseFloat(animalComForm.desconto_pct) : null,
+      preco_compra_kg: animalComForm.preco_compra_kg ? parseFloat(animalComForm.preco_compra_kg) : null,
+      peso_morto_kg: animalComForm.peso_morto_kg ? parseFloat(animalComForm.peso_morto_kg) : null,
+      preco_venda_kg: animalComForm.preco_venda_kg ? parseFloat(animalComForm.preco_venda_kg) : null,
+    }
+    let error
+    if (editingAnimalComId) {
+      ;({ error } = await supabase.from('lote_animais_comerciais').update(row).eq('id', editingAnimalComId))
+    } else {
+      ;({ error } = await supabase.from('lote_animais_comerciais').insert(row))
+    }
+    if (error) { alert(`Erro: ${error.message}`); setSavingAnimalCom(false); return }
+    setOpenAnimalCom(false)
+    setAnimalComForm({ ...EMPTY_ANIMAL_COM })
+    setEditingAnimalComId(null)
+    await loadAnimaisCom(selected.id)
+    setSavingAnimalCom(false)
+  }
+
+  async function excluirAnimalCom(id: string) {
+    if (!confirm('Excluir este animal?')) return
+    await supabase.from('lote_animais_comerciais').delete().eq('id', id)
+    setAnimaisCom(prev => prev.filter(a => a.id !== id))
+  }
+
+  async function togglePago() {
+    if (!selected) return
+    const newVal = !selected.pago
+    const update = { pago: newVal, data_pago_efetivo: newVal ? hoje() : null }
+    await supabase.from('lotes').update(update).eq('id', selected.id)
+    setSelected(prev => prev ? { ...prev, ...update } : prev)
+  }
+
+  async function toggleRecebido() {
+    if (!selected) return
+    const newVal = !selected.recebido
+    const update = { recebido: newVal, data_recebido_efetivo: newVal ? hoje() : null }
+    await supabase.from('lotes').update(update).eq('id', selected.id)
+    setSelected(prev => prev ? { ...prev, ...update } : prev)
+  }
+
   async function refreshAnimais(loteId: string) {
     const { data } = await supabase
       .from('animais').select('id, brinco, nome, categoria, sexo, raca')
@@ -229,8 +412,7 @@ export default function LotesPage() {
 
   async function loadAvailAnimais(search: string, cat: string) {
     setLoadingAvail(true)
-    let q = supabase.from('animais')
-      .select('id, brinco, nome, categoria, sexo, raca')
+    let q = supabase.from('animais').select('id, brinco, nome, categoria, sexo, raca')
       .eq('status', 'ativo').order('brinco').limit(60)
     if (search) q = q.ilike('brinco', `%${search}%`)
     if (cat) q = q.eq('categoria', cat)
@@ -294,10 +476,14 @@ export default function LotesPage() {
 
   // ── DETALHE ──
   if (selected) {
-    const custosTotal = lancamentos
-      .filter(l => l.tipo === 'saida')
-      .reduce((s, l) => s + Number(l.valor), 0)
+    const custosTotal = lancamentos.filter(l => l.tipo === 'saida').reduce((s, l) => s + Number(l.valor), 0)
     const custoPorCabeca = animais.length > 0 ? custosTotal / animais.length : null
+
+    const totCusto = animaisCom.reduce((s, a) => s + (computeAnimalCom(a, selected).custo ?? 0), 0)
+    const totVenda = animaisCom.reduce((s, a) => s + (computeAnimalCom(a, selected).venda ?? 0), 0)
+    const totLucro = r2(totVenda - totCusto)
+
+    const isCom = selected.tipo === 'comercial'
 
     return (
       <div className="max-w-2xl mx-auto px-4 py-4 pb-24">
@@ -335,24 +521,57 @@ export default function LotesPage() {
             <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
               <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Resumo</p>
               <div className="space-y-2">
-                <div className="flex justify-between items-baseline gap-3">
-                  <span className="text-sm text-gray-500 shrink-0">Animais no lote</span>
-                  <span className="text-sm font-semibold text-gray-900">
-                    {animais.length > 0 ? `${animais.length} cab.` : '—'}
-                  </span>
-                </div>
-                <div className="flex justify-between items-baseline gap-3">
-                  <span className="text-sm text-gray-500 shrink-0">Custo total</span>
-                  <span className="text-sm font-semibold text-gray-900">
-                    {custosTotal > 0 ? fmt(custosTotal) : '—'}
-                  </span>
-                </div>
-                <div className="flex justify-between items-baseline gap-3">
-                  <span className="text-sm text-gray-500 shrink-0">Custo / cabeça</span>
-                  <span className="text-sm font-semibold text-gray-900">
-                    {custoPorCabeca != null ? fmt(custoPorCabeca) : '—'}
-                  </span>
-                </div>
+                {isCom ? (
+                  <>
+                    <div className="flex justify-between items-baseline gap-3">
+                      <span className="text-sm text-gray-500 shrink-0">Animais no lote</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {animaisCom.length > 0 ? `${animaisCom.length} cab.` : '—'}
+                      </span>
+                    </div>
+                    {totCusto > 0 && (
+                      <div className="flex justify-between items-baseline gap-3">
+                        <span className="text-sm text-gray-500 shrink-0">Custo total</span>
+                        <span className="text-sm font-semibold text-red-600">{fmt(totCusto)}</span>
+                      </div>
+                    )}
+                    {totVenda > 0 && (
+                      <div className="flex justify-between items-baseline gap-3">
+                        <span className="text-sm text-gray-500 shrink-0">Venda total</span>
+                        <span className="text-sm font-semibold text-green-700">{fmt(totVenda)}</span>
+                      </div>
+                    )}
+                    {(totCusto > 0 || totVenda > 0) && (
+                      <div className="flex justify-between items-baseline gap-3">
+                        <span className="text-sm text-gray-500 shrink-0">Lucro</span>
+                        <span className={`text-sm font-bold ${totLucro >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                          {totLucro >= 0 ? '+' : ''}{fmt(totLucro)}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="flex justify-between items-baseline gap-3">
+                      <span className="text-sm text-gray-500 shrink-0">Animais no lote</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {animais.length > 0 ? `${animais.length} cab.` : '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-baseline gap-3">
+                      <span className="text-sm text-gray-500 shrink-0">Custo total</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {custosTotal > 0 ? fmt(custosTotal) : '—'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-baseline gap-3">
+                      <span className="text-sm text-gray-500 shrink-0">Custo / cabeça</span>
+                      <span className="text-sm font-semibold text-gray-900">
+                        {custoPorCabeca != null ? fmt(custoPorCabeca) : '—'}
+                      </span>
+                    </div>
+                  </>
+                )}
                 {selected.descricao && (
                   <div className="flex justify-between items-baseline gap-3">
                     <span className="text-sm text-gray-500 shrink-0">Descrição</span>
@@ -367,58 +586,278 @@ export default function LotesPage() {
                 )}
               </div>
               <div className="mt-3 pt-3 border-t border-gray-100">
-                <button
-                  onClick={excluirLote}
-                  className="text-xs text-red-400 hover:text-red-600 transition-colors"
-                >
+                <button onClick={excluirLote} className="text-xs text-red-400 hover:text-red-600 transition-colors">
                   Excluir lote
                 </button>
               </div>
             </div>
 
-            {/* Animais */}
-            <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
-                  Animais {animais.length > 0 ? `(${animais.length})` : ''}
-                </p>
-                <button
-                  onClick={() => {
-                    setAddSearch(''); setAddCatFilter(''); setAvailAnimais([]); setAddIds(new Set())
-                    setOpenAdd(true); loadAvailAnimais('', '')
-                  }}
-                  className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
-                >
-                  <Plus size={12} /> Adicionar
-                </button>
-              </div>
-              {animais.length === 0 && (
-                <p className="text-sm text-gray-400">Nenhum animal neste lote.</p>
-              )}
-              {animais.map((a, i) => (
-                <div
-                  key={a.id}
-                  className={`flex items-center gap-3 ${i > 0 ? 'pt-3 mt-3 border-t border-gray-100' : ''}`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm text-gray-900">{a.brinco}</p>
-                    {a.nome && <p className="text-xs text-gray-500">{a.nome}</p>}
+            {/* ── COMERCIAL sections ── */}
+            {isCom && (
+              <>
+                {/* Cabeçalho */}
+                <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Cabeçalho</p>
+                    {!editingHeader && (
+                      <button onClick={openHeaderEdit} className="p-1.5 text-gray-300 hover:text-gray-600 transition-colors">
+                        <Pencil size={14} />
+                      </button>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap justify-end">
-                    <span className="text-xs text-gray-500">{CAT_LABEL[a.categoria] ?? a.categoria}</span>
-                    <span className="text-xs text-gray-400">{a.sexo === 'femea' ? 'Fêmea' : 'Macho'}</span>
-                    <span className="text-xs text-gray-400">{a.raca}</span>
+
+                  {!editingHeader ? (
+                    <div className="space-y-2">
+                      {([
+                        ['Data compra', fmtDate(selected.data_compra)],
+                        ['Fornecedor', selected.fornecedor || '—'],
+                        ['Desconto', selected.desconto_pct != null ? `${selected.desconto_pct}%` : '—'],
+                        ['Preço compra', selected.preco_compra_kg != null ? `R$ ${selected.preco_compra_kg}/kg` : '—'],
+                        ['Prazo pagamento', selected.prazo_pagamento_dias != null ? `${selected.prazo_pagamento_dias} dias` : '—'],
+                        ['Prazo recebimento', selected.prazo_recebimento_dias != null ? `${selected.prazo_recebimento_dias} dias` : '—'],
+                        ['Data venda', fmtDate(selected.data_venda)],
+                        ['Comprador', selected.comprador || '—'],
+                      ] as [string, string][]).map(([label, value]) => (
+                        <div key={label} className="flex justify-between items-baseline gap-3">
+                          <span className="text-sm text-gray-500 shrink-0">{label}</span>
+                          <span className="text-sm font-medium text-gray-900 text-right">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Data compra</label>
+                          <Input type="date" value={headerComForm.data_compra}
+                            onChange={e => setHeaderComForm(p => ({ ...p, data_compra: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Data venda</label>
+                          <Input type="date" value={headerComForm.data_venda}
+                            onChange={e => setHeaderComForm(p => ({ ...p, data_venda: e.target.value }))} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 block mb-1">Fornecedor</label>
+                        <Input placeholder="Nome do fornecedor" value={headerComForm.fornecedor}
+                          onChange={e => setHeaderComForm(p => ({ ...p, fornecedor: e.target.value }))} />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Desconto (%)</label>
+                          <Input placeholder="0" inputMode="decimal" value={headerComForm.desconto_pct}
+                            onChange={e => setHeaderComForm(p => ({ ...p, desconto_pct: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Preço compra (R$/kg)</label>
+                          <Input placeholder="0.00" inputMode="decimal" value={headerComForm.preco_compra_kg}
+                            onChange={e => setHeaderComForm(p => ({ ...p, preco_compra_kg: e.target.value }))} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Prazo pagto. (dias)</label>
+                          <Input placeholder="30" inputMode="numeric" value={headerComForm.prazo_pagamento_dias}
+                            onChange={e => setHeaderComForm(p => ({ ...p, prazo_pagamento_dias: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Prazo receb. (dias)</label>
+                          <Input placeholder="30" inputMode="numeric" value={headerComForm.prazo_recebimento_dias}
+                            onChange={e => setHeaderComForm(p => ({ ...p, prazo_recebimento_dias: e.target.value }))} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 block mb-1">Comprador</label>
+                        <Input placeholder="Nome do comprador" value={headerComForm.comprador}
+                          onChange={e => setHeaderComForm(p => ({ ...p, comprador: e.target.value }))} />
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <Button variant="outline" className="flex-1" onClick={() => setEditingHeader(false)}>Cancelar</Button>
+                        <Button className="flex-1 bg-green-700 hover:bg-green-800" onClick={salvarHeader} disabled={savingHeader}>
+                          {savingHeader ? 'Salvando...' : 'Salvar'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Animais Comerciais */}
+                <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+                      Animais {animaisCom.length > 0 ? `(${animaisCom.length})` : ''}
+                    </p>
                     <button
-                      onClick={() => handleRemoverAnimal(a.id)}
-                      title="Remover do lote"
-                      className="p-1 text-gray-300 hover:text-red-400 transition-colors"
+                      onClick={openNewAnimalCom}
+                      className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
                     >
-                      <X size={14} />
+                      <Plus size={12} /> Adicionar
+                    </button>
+                  </div>
+                  {animaisCom.length === 0 && (
+                    <p className="text-sm text-gray-400">Nenhum animal neste lote.</p>
+                  )}
+                  {animaisCom.map((a, i) => {
+                    const calc = computeAnimalCom(a, selected)
+                    return (
+                      <div key={a.id} className={`flex items-center gap-2 py-2.5 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{a.identificacao || '—'}</p>
+                          <p className="text-xs text-gray-400">
+                            {a.peso_vivo_kg != null ? `${a.peso_vivo_kg} kg` : '—'}
+                            {a.peso_morto_kg != null ? ` → ${a.peso_morto_kg} kg` : ''}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {calc.lucro != null && (
+                            <p className={`text-sm font-semibold ${calc.lucro >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                              {calc.lucro >= 0 ? '+' : ''}{fmt(calc.lucro)}
+                            </p>
+                          )}
+                          {calc.venda != null && (
+                            <p className="text-xs text-gray-400">{fmt(calc.venda)}</p>
+                          )}
+                        </div>
+                        <button onClick={() => openEditAnimalCom(a)}
+                          className="p-1.5 text-gray-300 hover:text-blue-500 transition-colors shrink-0">
+                          <Pencil size={13} />
+                        </button>
+                        <button onClick={() => excluirAnimalCom(a.id)}
+                          className="p-1.5 text-gray-300 hover:text-red-400 transition-colors shrink-0">
+                          <X size={13} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Totais */}
+                {animaisCom.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Totais</p>
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-baseline gap-3">
+                        <span className="text-sm text-gray-500">Qtd. animais</span>
+                        <span className="text-sm font-semibold text-gray-900">{animaisCom.length} cab.</span>
+                      </div>
+                      <div className="flex justify-between items-baseline gap-3">
+                        <span className="text-sm text-gray-500">Custo total</span>
+                        <span className="text-sm font-semibold text-red-600">{fmt(totCusto)}</span>
+                      </div>
+                      <div className="flex justify-between items-baseline gap-3">
+                        <span className="text-sm text-gray-500">Venda total</span>
+                        <span className="text-sm font-semibold text-green-700">{fmt(totVenda)}</span>
+                      </div>
+                      <div className="flex justify-between items-baseline gap-3 pt-2 border-t border-gray-100">
+                        <span className="text-sm font-semibold text-gray-700">Lucro</span>
+                        <span className={`text-sm font-bold ${totLucro >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                          {totLucro >= 0 ? '+' : ''}{fmt(totLucro)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Status financeiro */}
+                <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Status financeiro</p>
+                  <div className="flex flex-col gap-3">
+                    <button
+                      onClick={togglePago}
+                      className={`flex items-center justify-between px-4 py-3 rounded-xl border transition-colors ${
+                        selected.pago ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                      }`}
+                    >
+                      <div className="text-left">
+                        <p className={`text-sm font-semibold ${selected.pago ? 'text-green-700' : 'text-gray-600'}`}>
+                          {selected.pago ? 'Pago' : 'Pendente pagamento'}
+                        </p>
+                        {selected.data_pago_efetivo && (
+                          <p className="text-xs text-gray-400">em {fmtDate(selected.data_pago_efetivo)}</p>
+                        )}
+                        {!selected.pago && selected.prazo_pagamento_dias != null && selected.data_compra && (() => {
+                          const d = new Date(selected.data_compra)
+                          d.setDate(d.getDate() + selected.prazo_pagamento_dias)
+                          return <p className="text-xs text-gray-400">vence {fmtDate(d.toISOString().split('T')[0])}</p>
+                        })()}
+                      </div>
+                      <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                        selected.pago ? 'bg-green-600 border-green-600' : 'border-gray-300'
+                      }`}>
+                        {selected.pago && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+                      </span>
+                    </button>
+
+                    <button
+                      onClick={toggleRecebido}
+                      className={`flex items-center justify-between px-4 py-3 rounded-xl border transition-colors ${
+                        selected.recebido ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                      }`}
+                    >
+                      <div className="text-left">
+                        <p className={`text-sm font-semibold ${selected.recebido ? 'text-green-700' : 'text-gray-600'}`}>
+                          {selected.recebido ? 'Recebido' : 'Pendente recebimento'}
+                        </p>
+                        {selected.data_recebido_efetivo && (
+                          <p className="text-xs text-gray-400">em {fmtDate(selected.data_recebido_efetivo)}</p>
+                        )}
+                        {!selected.recebido && selected.prazo_recebimento_dias != null && selected.data_venda && (() => {
+                          const d = new Date(selected.data_venda)
+                          d.setDate(d.getDate() + selected.prazo_recebimento_dias)
+                          return <p className="text-xs text-gray-400">vence {fmtDate(d.toISOString().split('T')[0])}</p>
+                        })()}
+                      </div>
+                      <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                        selected.recebido ? 'bg-green-600 border-green-600' : 'border-gray-300'
+                      }`}>
+                        {selected.recebido && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+                      </span>
                     </button>
                   </div>
                 </div>
-              ))}
-            </div>
+              </>
+            )}
+
+            {/* Animais rebanho — somente para lotes não-comerciais */}
+            {!isCom && (
+              <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+                    Animais {animais.length > 0 ? `(${animais.length})` : ''}
+                  </p>
+                  <button
+                    onClick={() => {
+                      setAddSearch(''); setAddCatFilter(''); setAvailAnimais([]); setAddIds(new Set())
+                      setOpenAdd(true); loadAvailAnimais('', '')
+                    }}
+                    className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
+                  >
+                    <Plus size={12} /> Adicionar
+                  </button>
+                </div>
+                {animais.length === 0 && (
+                  <p className="text-sm text-gray-400">Nenhum animal neste lote.</p>
+                )}
+                {animais.map((a, i) => (
+                  <div key={a.id} className={`flex items-center gap-3 ${i > 0 ? 'pt-3 mt-3 border-t border-gray-100' : ''}`}>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm text-gray-900">{a.brinco}</p>
+                      {a.nome && <p className="text-xs text-gray-500">{a.nome}</p>}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
+                      <span className="text-xs text-gray-500">{CAT_LABEL[a.categoria] ?? a.categoria}</span>
+                      <span className="text-xs text-gray-400">{a.sexo === 'femea' ? 'Fêmea' : 'Macho'}</span>
+                      <span className="text-xs text-gray-400">{a.raca}</span>
+                      <button onClick={() => handleRemoverAnimal(a.id)} title="Remover do lote"
+                        className="p-1 text-gray-300 hover:text-red-400 transition-colors">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Histórico financeiro */}
             <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
@@ -435,17 +874,12 @@ export default function LotesPage() {
                 <p className="text-sm text-gray-400">Nenhum lançamento vinculado.</p>
               )}
               {lancamentos.map((l, i) => (
-                <div
-                  key={l.id}
-                  className={`flex items-start gap-3 ${i > 0 ? 'pt-3 mt-3 border-t border-gray-100' : ''}`}
-                >
+                <div key={l.id} className={`flex items-start gap-3 ${i > 0 ? 'pt-3 mt-3 border-t border-gray-100' : ''}`}>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-900">{l.descricao || l.categoria || '—'}</p>
                     <p className="text-xs text-gray-400">{fmtDate(l.data)}</p>
                   </div>
-                  <span className={`text-sm font-semibold shrink-0 ${
-                    l.tipo === 'saida' ? 'text-red-600' : 'text-green-700'
-                  }`}>
+                  <span className={`text-sm font-semibold shrink-0 ${l.tipo === 'saida' ? 'text-red-600' : 'text-green-700'}`}>
                     {l.tipo === 'saida' ? '− ' : '+ '}{fmt(Number(l.valor))}
                   </span>
                 </div>
@@ -460,7 +894,7 @@ export default function LotesPage() {
           </>
         )}
 
-        {/* Dialog: Adicionar animais */}
+        {/* Dialog: Adicionar animais (rebanho) */}
         <Dialog open={openAdd} onOpenChange={setOpenAdd}>
           <DialogContent className="max-h-[85vh] overflow-y-auto w-full max-w-md">
             <DialogHeader>
@@ -469,12 +903,8 @@ export default function LotesPage() {
             <div className="pt-1 space-y-3">
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <Input
-                  placeholder="Buscar brinco..."
-                  className="pl-9"
-                  value={addSearch}
-                  onChange={e => { setAddSearch(e.target.value); loadAvailAnimais(e.target.value, addCatFilter) }}
-                />
+                <Input placeholder="Buscar brinco..." className="pl-9" value={addSearch}
+                  onChange={e => { setAddSearch(e.target.value); loadAvailAnimais(e.target.value, addCatFilter) }} />
               </div>
               <div className="flex gap-2 flex-wrap">
                 {(['', 'matriz', 'bezerro', 'novilha', 'touro', 'boi'] as const).map(c => (
@@ -500,8 +930,7 @@ export default function LotesPage() {
                             const next = new Set(prev)
                             e.target.checked ? next.add(a.id) : next.delete(a.id)
                             return next
-                          })}
-                          className="rounded border-gray-300 shrink-0" />
+                          })} className="rounded border-gray-300 shrink-0" />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold text-gray-900">{a.brinco}</p>
                           <p className="text-xs text-gray-500">
@@ -525,7 +954,59 @@ export default function LotesPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Dialog novo lançamento */}
+        {/* Dialog: Animal comercial */}
+        <Dialog open={openAnimalCom} onOpenChange={setOpenAnimalCom}>
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{editingAnimalComId ? 'Editar animal' : 'Adicionar animal'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 pt-2">
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Identificação</label>
+                <Input placeholder="Ex: FÊMEA, MACHO, FÊMEA-BOA..." value={animalComForm.identificacao}
+                  onChange={e => setAnimalComForm(p => ({ ...p, identificacao: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Peso vivo (kg)</label>
+                  <Input placeholder="0" inputMode="decimal" value={animalComForm.peso_vivo_kg}
+                    onChange={e => setAnimalComForm(p => ({ ...p, peso_vivo_kg: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Peso morto (kg)</label>
+                  <Input placeholder="0" inputMode="decimal" value={animalComForm.peso_morto_kg}
+                    onChange={e => setAnimalComForm(p => ({ ...p, peso_morto_kg: e.target.value }))} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Desconto (%)</label>
+                  <Input
+                    placeholder={selected?.desconto_pct != null ? `${selected.desconto_pct} (padrão)` : '0'}
+                    inputMode="decimal" value={animalComForm.desconto_pct}
+                    onChange={e => setAnimalComForm(p => ({ ...p, desconto_pct: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Preço venda (R$/kg)</label>
+                  <Input placeholder="0.00" inputMode="decimal" value={animalComForm.preco_venda_kg}
+                    onChange={e => setAnimalComForm(p => ({ ...p, preco_venda_kg: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Preço compra (R$/kg)</label>
+                <Input
+                  placeholder={selected?.preco_compra_kg != null ? `${selected.preco_compra_kg} (padrão)` : '0'}
+                  inputMode="decimal" value={animalComForm.preco_compra_kg}
+                  onChange={e => setAnimalComForm(p => ({ ...p, preco_compra_kg: e.target.value }))} />
+              </div>
+              <Button className="w-full bg-green-700 hover:bg-green-800" onClick={salvarAnimalCom} disabled={savingAnimalCom}>
+                {savingAnimalCom ? 'Salvando...' : editingAnimalComId ? 'Salvar alterações' : 'Adicionar animal'}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog: Novo lançamento */}
         <Dialog open={openLanc} onOpenChange={setOpenLanc}>
           <DialogContent className="max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Novo lançamento — {selected?.nome}</DialogTitle></DialogHeader>
@@ -534,8 +1015,7 @@ export default function LotesPage() {
                 <label className="text-sm font-medium text-gray-700 block mb-1">Tipo</label>
                 <div className="flex gap-2">
                   {(['saida', 'entrada'] as const).map(t => (
-                    <button key={t} type="button"
-                      onClick={() => setLancForm(p => ({ ...p, tipo: t }))}
+                    <button key={t} type="button" onClick={() => setLancForm(p => ({ ...p, tipo: t }))}
                       className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${lancForm.tipo === t ? (t === 'saida' ? 'bg-red-600 text-white border-red-600' : 'bg-green-700 text-white border-green-700') : 'border-gray-200 text-gray-600'}`}>
                       {t === 'saida' ? 'Saída (custo)' : 'Entrada (receita)'}
                     </button>
@@ -544,8 +1024,8 @@ export default function LotesPage() {
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Valor (R$)</label>
-                <Input placeholder="0,00" inputMode="decimal"
-                  value={lancForm.valor} onChange={e => setLancForm(p => ({ ...p, valor: e.target.value }))} />
+                <Input placeholder="0,00" inputMode="decimal" value={lancForm.valor}
+                  onChange={e => setLancForm(p => ({ ...p, valor: e.target.value }))} />
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Data</label>
@@ -569,7 +1049,7 @@ export default function LotesPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Dialog editar */}
+        {/* Dialog: Editar lote */}
         <Dialog open={openEdit} onOpenChange={setOpenEdit}>
           <DialogContent className="max-h-[90vh] overflow-y-auto">
             <DialogHeader><DialogTitle>Editar Lote</DialogTitle></DialogHeader>
@@ -599,18 +1079,12 @@ export default function LotesPage() {
         </button>
       </div>
 
-      {/* Filtro situação */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
         {([['', `Todos (${ativos + encerrados})`], ['ativo', `Ativos (${ativos})`], ['encerrado', `Encerrados (${encerrados})`]] as const).map(([val, label]) => (
-          <button
-            key={val}
-            onClick={() => setSituFiltro(val)}
+          <button key={val} onClick={() => setSituFiltro(val)}
             className={`h-[34px] shrink-0 px-3 rounded-full text-xs font-semibold transition-colors ${
-              situFiltro === val
-                ? 'bg-green-700 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
+              situFiltro === val ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}>
             {label}
           </button>
         ))}
@@ -628,11 +1102,8 @@ export default function LotesPage() {
       {!loading && lotes.length > 0 && (
         <div className="space-y-3">
           {lotes.map(l => (
-            <button
-              key={l.id}
-              onClick={() => openDetail(l)}
-              className="w-full text-left bg-white rounded-2xl border border-gray-200 p-4 hover:border-green-300 hover:shadow-sm transition-all active:scale-[0.99]"
-            >
+            <button key={l.id} onClick={() => openDetail(l)}
+              className="w-full text-left bg-white rounded-2xl border border-gray-200 p-4 hover:border-green-300 hover:shadow-sm transition-all active:scale-[0.99]">
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-900">{l.nome}</p>
@@ -653,7 +1124,6 @@ export default function LotesPage() {
         </div>
       )}
 
-      {/* Dialog novo lote */}
       <Dialog open={openNew} onOpenChange={setOpenNew}>
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Novo Lote</DialogTitle></DialogHeader>
@@ -692,7 +1162,6 @@ function LoteForm({
           ))}
         </div>
       </div>
-
       <div>
         <label className="text-sm font-medium text-gray-700 block mb-1">Situação</label>
         <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
