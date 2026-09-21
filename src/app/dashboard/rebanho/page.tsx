@@ -40,7 +40,7 @@ const catColor: Record<string, string> = {
 
 const EMPTY = {
   brinco:'', nome:'', data_nascimento:'', sexo:'femea', raca:'Nelore',
-  categoria:'bezerro', origem:'nascimento', valor_compra:'', status_reprodutivo:'', observacao:'', lote_id:'', fazenda_id:'',
+  categoria:'bezerro', origem:'nascimento', valor_compra:'', status_reprodutivo:'', observacao:'', lote_id:'', fazenda_id:'', mae_brinco:'',
 }
 
 export default function RebanhoPage() {
@@ -209,7 +209,7 @@ export default function RebanhoPage() {
       brinco: a.brinco, nome: a.nome ?? '', data_nascimento: a.data_nascimento,
       sexo: a.sexo, raca: a.raca, categoria: a.categoria, origem: a.origem,
       status_reprodutivo: a.status_reprodutivo ?? '', valor_compra: a.valor_compra ? String(a.valor_compra) : '',
-      observacao: a.observacao ?? '', lote_id: (a.lote as any)?.id ?? '', fazenda_id: a.fazenda_id,
+      observacao: a.observacao ?? '', lote_id: (a.lote as any)?.id ?? '', fazenda_id: a.fazenda_id, mae_brinco: a.mae?.brinco ?? '',
     })
     setOpen(true)
     setDetail(null)
@@ -268,6 +268,14 @@ export default function RebanhoPage() {
       lote_id: form.lote_id || null, fazenda_id: fid,
       status: 'ativo',
     }
+
+    // Se bezerro com mãe informada, buscar o ID e vincular
+    let maeId: string | null = null
+    if (form.categoria === 'bezerro' && form.mae_brinco.trim()) {
+      const { data: maeData } = await supabase.from('animais').select('id').ilike('brinco', form.mae_brinco.trim()).single()
+      if (maeData) { maeId = maeData.id; payload.mae_id = maeId }
+    }
+
     let error
     // Try save, if schema missing (e.g. valor_compra) retry without that field
     if (editing) {
@@ -289,6 +297,10 @@ export default function RebanhoPage() {
       alert(`Erro ao salvar: ${error.message}\nCódigo: ${error.code}\nDetalhe: ${error.details ?? '—'}`)
       setSaving(false)
       return
+    }
+    // Ao cadastrar novo bezerro com mãe vinculada, atualizar status da mãe para lactando
+    if (!editing && maeId) {
+      await supabase.from('animais').update({ status_reprodutivo: 'lactando' }).eq('id', maeId)
     }
     setSaving(false)
     setOpen(false)
@@ -651,7 +663,7 @@ export default function RebanhoPage() {
                           className="rounded border-gray-300 cursor-pointer" />
                       </td>
                       <td className="px-3 py-2 font-semibold text-gray-900">
-                        <button onClick={() => setDetail(a)} className="hover:text-green-700 hover:underline">{a.brinco}</button>
+                        <button onClick={() => router.push('/dashboard/rebanho/' + a.id)} className="hover:text-green-700 hover:underline">{a.brinco}</button>
                         {a.nome && <p className="text-xs text-gray-400 font-normal">{a.nome}</p>}
                       </td>
                       <td className="px-3 py-2">
@@ -840,6 +852,12 @@ export default function RebanhoPage() {
                 </button>
               </div>
             </div>
+            {form.categoria === 'bezerro' && (
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Mãe <span className="text-gray-400 font-normal">(brinco, opcional)</span></label>
+                <Input placeholder="Ex: 44" value={form.mae_brinco} onChange={e => f('mae_brinco', e.target.value.toUpperCase())} />
+              </div>
+            )}
             {lotes.filter(l => !form.fazenda_id || (l as any).fazenda_id === form.fazenda_id).length > 0 && (
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Lote</label>
