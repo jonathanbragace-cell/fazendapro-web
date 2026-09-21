@@ -263,8 +263,12 @@ export default function LotesPage() {
           .select('id, lote_id, tipo, descricao, valor')
           .eq('lote_id', lote.id).order('created_at'),
       ])
-      setAnimaisCom(ac ?? [])
-      setDespesas(desp ?? [])
+      const acList = (ac ?? []) as LoteAnimalCom[]
+      const despList = (desp ?? []) as LoteDespesa[]
+      setAnimaisCom(acList)
+      setDespesas(despList)
+      // sync inicial: garante registros no Financeiro ao abrir o lote
+      syncLoteFinanceiro(lote, acList, despList)
     }
 
     setLoadingDetail(false)
