@@ -47,6 +47,14 @@ type LoteAnimalCom = {
   preco_compra_kg: number | null
   peso_morto_kg: number | null
   preco_venda_kg: number | null
+  tipo_compra: 'vivo' | 'morto'
+}
+type LoteDespesa = {
+  id: string
+  lote_id: string
+  tipo: string
+  descricao: string | null
+  valor: number
 }
 type Lancamento = {
   id: string; descricao: string | null; tipo: string
@@ -68,6 +76,9 @@ const TIPO_COLOR: Record<string, string> = {
 const CAT_LABEL: Record<string, string> = {
   matriz: 'Matriz', bezerro: 'Bezerro', novilha: 'Novilha', touro: 'Touro', boi: 'Boi',
 }
+const DESPESA_LABEL: Record<string, string> = {
+  frete: 'Frete', comissao: 'Comissão', outros: 'Outros',
+}
 
 const r2 = (v: number) => Math.round(v * 100) / 100
 const fmt = (v: number) =>
@@ -80,13 +91,23 @@ const fmtDate = (iso: string | null) => {
 const hoje = () => new Date().toISOString().split('T')[0]
 
 function computeAnimalCom(
-  a: Pick<LoteAnimalCom, 'desconto_pct' | 'preco_compra_kg' | 'peso_vivo_kg' | 'peso_morto_kg' | 'preco_venda_kg'>,
+  a: Pick<LoteAnimalCom, 'desconto_pct' | 'preco_compra_kg' | 'peso_vivo_kg' | 'peso_morto_kg' | 'preco_venda_kg' | 'tipo_compra'>,
   lote: Lote
 ) {
-  const desc = a.desconto_pct ?? lote.desconto_pct ?? 0
   const precoCompra = a.preco_compra_kg ?? lote.preco_compra_kg ?? 0
-  const pesoDesc = a.peso_vivo_kg != null ? r2(a.peso_vivo_kg * (1 - desc / 100)) : null
-  const custo = pesoDesc != null && precoCompra ? r2(pesoDesc * precoCompra) : null
+  let custo: number | null = null
+  let pesoDesc: number | null = null
+
+  if (a.tipo_compra === 'morto') {
+    // Compra no grampo: custo = peso morto × preço de compra (sem desconto)
+    custo = a.peso_morto_kg != null && precoCompra ? r2(a.peso_morto_kg * precoCompra) : null
+  } else {
+    // Compra em peso vivo: custo = peso vivo × (1 − desconto%) × preço de compra
+    const desc = a.desconto_pct ?? lote.desconto_pct ?? 0
+    pesoDesc = a.peso_vivo_kg != null ? r2(a.peso_vivo_kg * (1 - desc / 100)) : null
+    custo = pesoDesc != null && precoCompra ? r2(pesoDesc * precoCompra) : null
+  }
+
   const venda = a.peso_morto_kg != null && a.preco_venda_kg != null
     ? r2(a.peso_morto_kg * a.preco_venda_kg) : null
   const lucro = custo != null && venda != null ? r2(venda - custo) : null
@@ -97,13 +118,15 @@ const EMPTY_LOTE = {
   nome: '', tipo: 'recria', situacao: 'ativo', fazenda_id: '', data_criacao: hoje(),
 }
 const EMPTY_ANIMAL_COM = {
-  identificacao: '', peso_vivo_kg: '', desconto_pct: '', preco_compra_kg: '',
+  identificacao: '', tipo_compra: 'vivo' as 'vivo' | 'morto',
+  peso_vivo_kg: '', desconto_pct: '', preco_compra_kg: '',
   peso_morto_kg: '', preco_venda_kg: '',
 }
 const EMPTY_HEADER_COM = {
   data_compra: '', fornecedor: '', desconto_pct: '', preco_compra_kg: '',
   prazo_pagamento_dias: '', prazo_recebimento_dias: '', data_venda: '', comprador: '',
 }
+const EMPTY_DESPESA = { tipo: 'frete', descricao: '', valor: '' }
 
 function TipoChip({ tipo }: { tipo: string | null }) {
   if (!tipo) return <span className="text-gray-400">—</span>
@@ -125,6 +148,7 @@ export default function LotesPage() {
   const [selected, setSelected] = useState<Lote | null>(null)
   const [animais, setAnimais] = useState<Animal[]>([])
   const [animaisCom, setAnimaisCom] = useState<LoteAnimalCom[]>([])
+  const [despesas, setDespesas] = useState<LoteDespesa[]>([])
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
   const [loadingDetail, setLoadingDetail] = useState(false)
 
@@ -141,6 +165,10 @@ export default function LotesPage() {
   const [animalComForm, setAnimalComForm] = useState({ ...EMPTY_ANIMAL_COM })
   const [editingAnimalComId, setEditingAnimalComId] = useState<string | null>(null)
   const [savingAnimalCom, setSavingAnimalCom] = useState(false)
+
+  const [openDespesa, setOpenDespesa] = useState(false)
+  const [despesaForm, setDespesaForm] = useState({ ...EMPTY_DESPESA })
+  const [savingDespesa, setSavingDespesa] = useState(false)
 
   const [openLanc, setOpenLanc] = useState(false)
   const [savingLanc, setSavingLanc] = useState(false)
@@ -209,6 +237,7 @@ export default function LotesPage() {
     setLoadingDetail(true)
     setSelected(lote)
     setAnimaisCom([])
+    setDespesas([])
     setEditingHeader(false)
     window.scrollTo(0, 0)
 
@@ -222,12 +251,16 @@ export default function LotesPage() {
     setLancamentos(fin ?? [])
 
     if (lote.tipo === 'comercial') {
-      const { data: ac } = await supabase
-        .from('lote_animais_comerciais')
-        .select('id, lote_id, identificacao, peso_vivo_kg, desconto_pct, preco_compra_kg, peso_morto_kg, preco_venda_kg')
-        .eq('lote_id', lote.id)
-        .order('created_at')
+      const [{ data: ac }, { data: desp }] = await Promise.all([
+        supabase.from('lote_animais_comerciais')
+          .select('id, lote_id, identificacao, peso_vivo_kg, desconto_pct, preco_compra_kg, peso_morto_kg, preco_venda_kg, tipo_compra')
+          .eq('lote_id', lote.id).order('created_at'),
+        supabase.from('lote_despesas')
+          .select('id, lote_id, tipo, descricao, valor')
+          .eq('lote_id', lote.id).order('created_at'),
+      ])
       setAnimaisCom(ac ?? [])
+      setDespesas(desp ?? [])
     }
 
     setLoadingDetail(false)
@@ -236,10 +269,16 @@ export default function LotesPage() {
   async function loadAnimaisCom(loteId: string) {
     const { data } = await supabase
       .from('lote_animais_comerciais')
-      .select('id, lote_id, identificacao, peso_vivo_kg, desconto_pct, preco_compra_kg, peso_morto_kg, preco_venda_kg')
-      .eq('lote_id', loteId)
-      .order('created_at')
+      .select('id, lote_id, identificacao, peso_vivo_kg, desconto_pct, preco_compra_kg, peso_morto_kg, preco_venda_kg, tipo_compra')
+      .eq('lote_id', loteId).order('created_at')
     setAnimaisCom(data ?? [])
+  }
+
+  async function loadDespesas(loteId: string) {
+    const { data } = await supabase.from('lote_despesas')
+      .select('id, lote_id, tipo, descricao, valor')
+      .eq('lote_id', loteId).order('created_at')
+    setDespesas(data ?? [])
   }
 
   useEffect(() => { load() }, [situFiltro]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -346,6 +385,7 @@ export default function LotesPage() {
     setEditingAnimalComId(a.id)
     setAnimalComForm({
       identificacao: a.identificacao ?? '',
+      tipo_compra: a.tipo_compra ?? 'vivo',
       peso_vivo_kg: a.peso_vivo_kg != null ? String(a.peso_vivo_kg) : '',
       desconto_pct: a.desconto_pct != null ? String(a.desconto_pct) : '',
       preco_compra_kg: a.preco_compra_kg != null ? String(a.preco_compra_kg) : '',
@@ -361,6 +401,7 @@ export default function LotesPage() {
     const row = {
       lote_id: selected.id,
       identificacao: animalComForm.identificacao.trim() || null,
+      tipo_compra: animalComForm.tipo_compra,
       peso_vivo_kg: animalComForm.peso_vivo_kg ? parseFloat(animalComForm.peso_vivo_kg) : null,
       desconto_pct: animalComForm.desconto_pct ? parseFloat(animalComForm.desconto_pct) : null,
       preco_compra_kg: animalComForm.preco_compra_kg ? parseFloat(animalComForm.preco_compra_kg) : null,
@@ -385,6 +426,28 @@ export default function LotesPage() {
     if (!confirm('Excluir este animal?')) return
     await supabase.from('lote_animais_comerciais').delete().eq('id', id)
     setAnimaisCom(prev => prev.filter(a => a.id !== id))
+  }
+
+  async function salvarDespesa() {
+    if (!selected || !despesaForm.valor) { alert('Valor é obrigatório.'); return }
+    setSavingDespesa(true)
+    const { error } = await supabase.from('lote_despesas').insert({
+      lote_id: selected.id,
+      tipo: despesaForm.tipo,
+      descricao: despesaForm.descricao.trim() || null,
+      valor: parseFloat(despesaForm.valor.replace(',', '.')),
+    })
+    if (error) { alert(`Erro: ${error.message}`); setSavingDespesa(false); return }
+    setOpenDespesa(false)
+    setDespesaForm({ ...EMPTY_DESPESA })
+    await loadDespesas(selected.id)
+    setSavingDespesa(false)
+  }
+
+  async function excluirDespesa(id: string) {
+    if (!confirm('Excluir esta despesa?')) return
+    await supabase.from('lote_despesas').delete().eq('id', id)
+    setDespesas(prev => prev.filter(d => d.id !== id))
   }
 
   async function togglePago() {
@@ -481,7 +544,8 @@ export default function LotesPage() {
 
     const totCusto = animaisCom.reduce((s, a) => s + (computeAnimalCom(a, selected).custo ?? 0), 0)
     const totVenda = animaisCom.reduce((s, a) => s + (computeAnimalCom(a, selected).venda ?? 0), 0)
-    const totLucro = r2(totVenda - totCusto)
+    const totDespesas = despesas.reduce((s, d) => s + Number(d.valor), 0)
+    const totLucro = r2(totVenda - totCusto - totDespesas)
 
     const isCom = selected.tipo === 'comercial'
 
@@ -531,8 +595,14 @@ export default function LotesPage() {
                     </div>
                     {totCusto > 0 && (
                       <div className="flex justify-between items-baseline gap-3">
-                        <span className="text-sm text-gray-500 shrink-0">Custo total</span>
+                        <span className="text-sm text-gray-500 shrink-0">Custo animais</span>
                         <span className="text-sm font-semibold text-red-600">{fmt(totCusto)}</span>
+                      </div>
+                    )}
+                    {totDespesas > 0 && (
+                      <div className="flex justify-between items-baseline gap-3">
+                        <span className="text-sm text-gray-500 shrink-0">Despesas</span>
+                        <span className="text-sm font-semibold text-red-600">{fmt(totDespesas)}</span>
                       </div>
                     )}
                     {totVenda > 0 && (
@@ -700,13 +770,16 @@ export default function LotesPage() {
                   )}
                   {animaisCom.map((a, i) => {
                     const calc = computeAnimalCom(a, selected)
+                    const isMorto = a.tipo_compra === 'morto'
                     return (
                       <div key={a.id} className={`flex items-center gap-2 py-2.5 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 truncate">{a.identificacao || '—'}</p>
                           <p className="text-xs text-gray-400">
-                            {a.peso_vivo_kg != null ? `${a.peso_vivo_kg} kg` : '—'}
-                            {a.peso_morto_kg != null ? ` → ${a.peso_morto_kg} kg` : ''}
+                            {isMorto
+                              ? `${a.peso_morto_kg != null ? `${a.peso_morto_kg} kg` : '—'} (grampo)`
+                              : `${a.peso_vivo_kg != null ? `${a.peso_vivo_kg} kg` : '—'}${a.peso_morto_kg != null ? ` → ${a.peso_morto_kg} kg` : ''}`
+                            }
                           </p>
                         </div>
                         <div className="text-right shrink-0">
@@ -732,6 +805,37 @@ export default function LotesPage() {
                   })}
                 </div>
 
+                {/* Despesas */}
+                <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+                      Despesas {despesas.length > 0 ? `(${despesas.length})` : ''}
+                    </p>
+                    <button
+                      onClick={() => { setDespesaForm({ ...EMPTY_DESPESA }); setOpenDespesa(true) }}
+                      className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
+                    >
+                      <Plus size={12} /> Despesa
+                    </button>
+                  </div>
+                  {despesas.length === 0 && (
+                    <p className="text-sm text-gray-400">Nenhuma despesa lançada.</p>
+                  )}
+                  {despesas.map((d, i) => (
+                    <div key={d.id} className={`flex items-center gap-2 py-2.5 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900">{DESPESA_LABEL[d.tipo] ?? d.tipo}</p>
+                        {d.descricao && <p className="text-xs text-gray-400 truncate">{d.descricao}</p>}
+                      </div>
+                      <span className="text-sm font-semibold text-red-600 shrink-0">{fmt(Number(d.valor))}</span>
+                      <button onClick={() => excluirDespesa(d.id)}
+                        className="p-1.5 text-gray-300 hover:text-red-400 transition-colors shrink-0">
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
                 {/* Totais */}
                 {animaisCom.length > 0 && (
                   <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
@@ -742,9 +846,15 @@ export default function LotesPage() {
                         <span className="text-sm font-semibold text-gray-900">{animaisCom.length} cab.</span>
                       </div>
                       <div className="flex justify-between items-baseline gap-3">
-                        <span className="text-sm text-gray-500">Custo total</span>
+                        <span className="text-sm text-gray-500">Custo animais</span>
                         <span className="text-sm font-semibold text-red-600">{fmt(totCusto)}</span>
                       </div>
+                      {totDespesas > 0 && (
+                        <div className="flex justify-between items-baseline gap-3">
+                          <span className="text-sm text-gray-500">Despesas</span>
+                          <span className="text-sm font-semibold text-red-600">{fmt(totDespesas)}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between items-baseline gap-3">
                         <span className="text-sm text-gray-500">Venda total</span>
                         <span className="text-sm font-semibold text-green-700">{fmt(totVenda)}</span>
@@ -966,9 +1076,29 @@ export default function LotesPage() {
                 <Input placeholder="Ex: FÊMEA, MACHO, FÊMEA-BOA..." value={animalComForm.identificacao}
                   onChange={e => setAnimalComForm(p => ({ ...p, identificacao: e.target.value }))} />
               </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Tipo de compra</label>
+                <div className="flex gap-2">
+                  <button type="button"
+                    onClick={() => setAnimalComForm(p => ({ ...p, tipo_compra: 'vivo' }))}
+                    className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${animalComForm.tipo_compra === 'vivo' ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                    Peso vivo
+                  </button>
+                  <button type="button"
+                    onClick={() => setAnimalComForm(p => ({ ...p, tipo_compra: 'morto' }))}
+                    className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${animalComForm.tipo_compra === 'morto' ? 'bg-orange-600 text-white border-orange-600' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                    No grampo
+                  </button>
+                </div>
+                {animalComForm.tipo_compra === 'morto' && (
+                  <p className="text-xs text-gray-400 mt-1">Custo = peso morto × preço de compra (sem desconto)</p>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">Peso vivo (kg)</label>
+                <div className={animalComForm.tipo_compra === 'morto' ? 'opacity-60' : ''}>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
+                    Peso vivo (kg){animalComForm.tipo_compra === 'morto' ? ' — opcional' : ''}
+                  </label>
                   <Input placeholder="0" inputMode="decimal" value={animalComForm.peso_vivo_kg}
                     onChange={e => setAnimalComForm(p => ({ ...p, peso_vivo_kg: e.target.value }))} />
                 </div>
@@ -978,20 +1108,29 @@ export default function LotesPage() {
                     onChange={e => setAnimalComForm(p => ({ ...p, peso_morto_kg: e.target.value }))} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">Desconto (%)</label>
-                  <Input
-                    placeholder={selected?.desconto_pct != null ? `${selected.desconto_pct} (padrão)` : '0'}
-                    inputMode="decimal" value={animalComForm.desconto_pct}
-                    onChange={e => setAnimalComForm(p => ({ ...p, desconto_pct: e.target.value }))} />
+              {animalComForm.tipo_compra === 'vivo' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">Desconto (%)</label>
+                    <Input
+                      placeholder={selected?.desconto_pct != null ? `${selected.desconto_pct} (padrão)` : '0'}
+                      inputMode="decimal" value={animalComForm.desconto_pct}
+                      onChange={e => setAnimalComForm(p => ({ ...p, desconto_pct: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">Preço venda (R$/kg)</label>
+                    <Input placeholder="0.00" inputMode="decimal" value={animalComForm.preco_venda_kg}
+                      onChange={e => setAnimalComForm(p => ({ ...p, preco_venda_kg: e.target.value }))} />
+                  </div>
                 </div>
+              )}
+              {animalComForm.tipo_compra === 'morto' && (
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">Preço venda (R$/kg)</label>
                   <Input placeholder="0.00" inputMode="decimal" value={animalComForm.preco_venda_kg}
                     onChange={e => setAnimalComForm(p => ({ ...p, preco_venda_kg: e.target.value }))} />
                 </div>
-              </div>
+              )}
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Preço compra (R$/kg)</label>
                 <Input
@@ -1001,6 +1140,39 @@ export default function LotesPage() {
               </div>
               <Button className="w-full bg-green-700 hover:bg-green-800" onClick={salvarAnimalCom} disabled={savingAnimalCom}>
                 {savingAnimalCom ? 'Salvando...' : editingAnimalComId ? 'Salvar alterações' : 'Adicionar animal'}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog: Nova despesa */}
+        <Dialog open={openDespesa} onOpenChange={setOpenDespesa}>
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
+            <DialogHeader><DialogTitle>Nova despesa — {selected?.nome}</DialogTitle></DialogHeader>
+            <div className="space-y-3 pt-2">
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Tipo</label>
+                <div className="flex gap-2 flex-wrap">
+                  {(['frete', 'comissao', 'outros'] as const).map(t => (
+                    <button key={t} type="button" onClick={() => setDespesaForm(p => ({ ...p, tipo: t }))}
+                      className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${despesaForm.tipo === t ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-600 hover:border-green-300'}`}>
+                      {DESPESA_LABEL[t]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Descrição</label>
+                <Input placeholder="Opcional..." value={despesaForm.descricao}
+                  onChange={e => setDespesaForm(p => ({ ...p, descricao: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Valor (R$)</label>
+                <Input placeholder="0,00" inputMode="decimal" value={despesaForm.valor}
+                  onChange={e => setDespesaForm(p => ({ ...p, valor: e.target.value }))} />
+              </div>
+              <Button className="w-full bg-green-700 hover:bg-green-800" onClick={salvarDespesa} disabled={savingDespesa}>
+                {savingDespesa ? 'Salvando...' : 'Salvar despesa'}
               </Button>
             </div>
           </DialogContent>
