@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ChevronLeft, Pencil, Plus, Search, X } from 'lucide-react'
+import { ChevronLeft, FileText, Pencil, Plus, Search, X } from 'lucide-react'
 
 const supabase = createClient()
 
@@ -537,6 +537,112 @@ export default function LotesPage() {
     setSavingLanc(false)
   }
 
+  function gerarRelatorio() {
+    if (!selected) return
+    const lote = selected
+    const prazo = lote.prazo_pagamento_dias
+    const dataVenc = lote.data_compra && prazo != null ? (() => {
+      const d = new Date(lote.data_compra!)
+      d.setDate(d.getDate() + prazo)
+      return d.toISOString().split('T')[0]
+    })() : null
+
+    const fmtN = (v: number | null) =>
+      v != null ? v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
+    const fmtC = (v: number | null) =>
+      v != null ? 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '—'
+
+    const rows = animaisCom.map(a => {
+      const isMorto = a.tipo_compra === 'morto'
+      const calc = computeAnimalCom(a, lote)
+      const precoEfetivo = a.preco_compra_kg ?? lote.preco_compra_kg ?? 0
+      const descEfetivo = isMorto ? null : (a.desconto_pct ?? lote.desconto_pct ?? 0)
+      return {
+        identificacao: a.identificacao ?? '—',
+        tipo: isMorto ? 'Grampo' : 'Vivo',
+        peso: isMorto ? a.peso_morto_kg : a.peso_vivo_kg,
+        desconto: descEfetivo,
+        pesoDesc: isMorto ? a.peso_morto_kg : calc.pesoDesc,
+        precoKg: precoEfetivo,
+        valor: calc.custo,
+      }
+    })
+
+    const totalAnimais = rows.length
+    const totalPeso = rows.reduce((s, r) => s + (r.peso ?? 0), 0)
+    const totalPesoDesc = rows.reduce((s, r) => s + (r.pesoDesc ?? 0), 0)
+    const totalValor = rows.reduce((s, r) => s + (r.valor ?? 0), 0)
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Relatório — ${lote.nome}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 12px; color: #111; margin: 20mm 15mm; }
+  h1 { font-size: 17px; margin: 0 0 3px; }
+  .sub { color: #555; font-size: 11px; margin-bottom: 18px; }
+  .info { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin-bottom: 20px; }
+  .lbl { color: #666; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th { background: #f2f2f2; text-align: left; padding: 5px 7px; border-bottom: 1px solid #bbb; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; }
+  td { padding: 5px 7px; border-bottom: 1px solid #eee; }
+  .r { text-align: right; }
+  .tot td { font-weight: bold; border-top: 2px solid #333; border-bottom: none; background: #f8f8f8; }
+  .footer { margin-top: 14px; font-size: 11px; color: #444; line-height: 1.6; }
+  @media print { body { margin: 0; padding: 12mm 14mm; } }
+</style>
+</head>
+<body>
+<h1>${lote.nome}</h1>
+<div class="sub">Relatório de Compra</div>
+<div class="info">
+  <span class="lbl">Data da compra:</span><span>${fmtDate(lote.data_compra)}</span>
+  <span class="lbl">Fornecedor:</span><span>${lote.fornecedor || '—'}</span>
+</div>
+<table>
+  <thead>
+    <tr>
+      <th>Identificação</th>
+      <th>Tipo</th>
+      <th class="r">Peso (kg)</th>
+      <th class="r">Desc. (%)</th>
+      <th class="r">Peso c/ desc. (kg)</th>
+      <th class="r">R$/kg</th>
+      <th class="r">Valor (R$)</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${rows.map(r => `<tr>
+      <td>${r.identificacao}</td>
+      <td>${r.tipo}</td>
+      <td class="r">${r.peso != null ? r.peso.toLocaleString('pt-BR') : '—'}</td>
+      <td class="r">${r.desconto != null ? r.desconto + '%' : '—'}</td>
+      <td class="r">${fmtN(r.pesoDesc)}</td>
+      <td class="r">${fmtN(r.precoKg)}</td>
+      <td class="r">${fmtC(r.valor)}</td>
+    </tr>`).join('')}
+    <tr class="tot">
+      <td>Total (${totalAnimais} cab.)</td>
+      <td></td>
+      <td class="r">${fmtN(totalPeso)}</td>
+      <td></td>
+      <td class="r">${fmtN(totalPesoDesc)}</td>
+      <td></td>
+      <td class="r">${fmtC(totalValor)}</td>
+    </tr>
+  </tbody>
+</table>
+<div class="footer">
+  ${prazo != null ? `Prazo de pagamento: ${prazo} dias${dataVenc ? ' — vencimento: ' + fmtDate(dataVenc) : ''}` : ''}
+</div>
+</body>
+</html>`
+
+    const w = window.open('', '_blank')
+    if (w) { w.document.write(html); w.document.close() }
+  }
+
   // ── DETALHE ──
   if (selected) {
     const custosTotal = lancamentos.filter(l => l.tipo === 'saida').reduce((s, l) => s + Number(l.valor), 0)
@@ -758,12 +864,22 @@ export default function LotesPage() {
                     <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
                       Animais {animaisCom.length > 0 ? `(${animaisCom.length})` : ''}
                     </p>
-                    <button
-                      onClick={openNewAnimalCom}
-                      className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
-                    >
-                      <Plus size={12} /> Adicionar
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {animaisCom.length > 0 && (
+                        <button
+                          onClick={gerarRelatorio}
+                          className="flex items-center gap-1 text-xs font-semibold text-gray-500 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 transition-colors"
+                        >
+                          <FileText size={12} /> PDF
+                        </button>
+                      )}
+                      <button
+                        onClick={openNewAnimalCom}
+                        className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
+                      >
+                        <Plus size={12} /> Adicionar
+                      </button>
+                    </div>
                   </div>
                   {animaisCom.length === 0 && (
                     <p className="text-sm text-gray-400">Nenhum animal neste lote.</p>
@@ -778,7 +894,7 @@ export default function LotesPage() {
                           <p className="text-xs text-gray-400">
                             {isMorto
                               ? `${a.peso_morto_kg != null ? `${a.peso_morto_kg} kg` : '—'} (grampo)`
-                              : `${a.peso_vivo_kg != null ? `${a.peso_vivo_kg} kg` : '—'}${a.peso_morto_kg != null ? ` → ${a.peso_morto_kg} kg` : ''}`
+                              : `${calc.pesoDesc != null ? `${calc.pesoDesc} kg` : '—'}${a.peso_morto_kg != null ? ` → ${a.peso_morto_kg} kg` : ''}`
                             }
                           </p>
                         </div>
