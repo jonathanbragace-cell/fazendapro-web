@@ -39,6 +39,7 @@ type Reproducao = {
 }
 
 type Filho = { id: string; brinco: string; nome?: string | null; sexo: string; categoria: string; data_nascimento: string }
+type Evento = { id: string; data: string; tipo: string; descricao: string | null }
 type Lote = { id: string; nome: string }
 type AnimalMin = { id: string; brinco: string; nome?: string | null }
 
@@ -113,11 +114,14 @@ export default function FichaAnimal() {
   const [filhos, setFilhos] = useState<Filho[]>([])
   const [lotes, setLotes] = useState<Lote[]>([])
   const [maesDisp, setMaesDisp] = useState<AnimalMin[]>([])
+  const [eventos, setEventos] = useState<Evento[]>([])
   const [loading, setLoading] = useState(true)
 
   const [editOpen, setEditOpen] = useState(false)
   const [baixaOpen, setBaixaOpen] = useState(false)
   const [baixaTipo, setBaixaTipo] = useState<'vendido' | 'morto'>('vendido')
+  const [descarteOpen, setDescarteOpen] = useState(false)
+  const [descarteJust, setDescarteJust] = useState('')
   const [saving, setSaving] = useState(false)
 
   const [form, setForm] = useState({
@@ -130,7 +134,7 @@ export default function FichaAnimal() {
     if (!id) return
     setLoading(true)
 
-    const [{ data: a }, { data: p }, { data: s }, { data: r }] = await Promise.all([
+    const [{ data: a }, { data: p }, { data: s }, { data: r }, { data: ev }] = await Promise.all([
       supabase.from('animais')
         .select('*, lote:lotes(id, nome), mae:animais!mae_id(id, brinco, nome)')
         .eq('id', id).single(),
@@ -143,6 +147,9 @@ export default function FichaAnimal() {
       supabase.from('reproducao')
         .select('id, tipo_cobertura, data_cobertura, diagnostico, data_diagnostico, data_parto_prevista, data_parto_real, resultado_parto, observacao')
         .eq('animal_id', id).order('data_cobertura', { ascending: false }),
+      supabase.from('animal_eventos')
+        .select('id, data, tipo, descricao')
+        .eq('animal_id', id).order('data', { ascending: false }),
     ])
 
     if (a) {
@@ -182,6 +189,7 @@ export default function FichaAnimal() {
     setPesagens((p || []) as Pesagem[])
     setSanitario((s || []) as Sanitario[])
     setReproducao((r || []) as Reproducao[])
+    setEventos((ev || []) as Evento[])
     setLoading(false)
   }, [id])
 
@@ -216,6 +224,21 @@ export default function FichaAnimal() {
     await supabase.from('animais').update({ status: baixaTipo }).eq('id', animal.id)
     setSaving(false)
     setBaixaOpen(false)
+    load()
+  }
+
+  async function marcarDescarte() {
+    if (!animal) return
+    if (!descarteJust.trim()) { alert('Informe a justificativa para o descarte.'); return }
+    setSaving(true)
+    const hoje = new Date().toISOString().split('T')[0]
+    await supabase.from('animais').update({ marcacao: 'descarte' }).eq('id', animal.id)
+    await supabase.from('animal_eventos').insert({
+      animal_id: animal.id, data: hoje, tipo: 'descarte', descricao: descarteJust.trim(),
+    })
+    setSaving(false)
+    setDescarteOpen(false)
+    setDescarteJust('')
     load()
   }
 
@@ -274,6 +297,10 @@ export default function FichaAnimal() {
       sub: r.resultado_parto ? `Parto: ${r.resultado_parto}` : undefined,
       icon: '🔬',
     })
+  })
+  eventos.forEach(ev => {
+    const label = ev.tipo === 'descarte' ? 'Marcado para descarte' : ev.tipo
+    timeline.push({ date: ev.data, label, sub: ev.descricao ?? undefined, icon: '🔴' })
   })
   timeline.sort((a, b) => b.date.localeCompare(a.date))
 
@@ -518,6 +545,11 @@ export default function FichaAnimal() {
 
       {/* Footer fixo */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex gap-3 px-4 py-3 z-20">
+        {animal.status === 'ativo' && animal.marcacao !== 'descarte' && (
+          <Button variant="outline" className="flex-1 border-orange-200 text-orange-600 hover:bg-orange-50" onClick={() => { setDescarteJust(''); setDescarteOpen(true) }}>
+            Descarte
+          </Button>
+        )}
         {animal.status === 'ativo' && (
           <Button variant="outline" className="flex-1 border-red-200 text-red-600 hover:bg-red-50" onClick={() => setBaixaOpen(true)}>
             Baixa
@@ -640,6 +672,33 @@ export default function FichaAnimal() {
               <Button className="flex-1 bg-green-700 hover:bg-green-800"
                 onClick={salvarEdicao} disabled={saving || !form.brinco.trim()}>
                 {saving ? 'Salvando...' : 'Salvar'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Descarte */}
+      <Dialog open={descarteOpen} onOpenChange={setDescarteOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Marcar para descarte</DialogTitle></DialogHeader>
+          <div className="pt-2 space-y-4">
+            <p className="text-sm text-gray-600">Animal: <span className="font-semibold">{animal.brinco}</span></p>
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1">Justificativa *</label>
+              <textarea
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
+                rows={3}
+                placeholder="Descreva o motivo do descarte..."
+                value={descarteJust}
+                onChange={e => setDescarteJust(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setDescarteOpen(false)}>Cancelar</Button>
+              <Button className="flex-1 bg-orange-600 hover:bg-orange-700 text-white" onClick={marcarDescarte} disabled={saving}>
+                {saving ? 'Salvando...' : 'Confirmar descarte'}
               </Button>
             </div>
           </div>

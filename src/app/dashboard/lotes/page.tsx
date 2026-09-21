@@ -36,7 +36,7 @@ type Lote = {
 }
 type Animal = {
   id: string; brinco: string; nome: string | null
-  categoria: string; sexo: string; raca: string
+  categoria: string; sexo: string; raca: string; valor_compra?: number | null
 }
 type LoteAnimalCom = {
   id: string
@@ -209,7 +209,7 @@ export default function LotesPage() {
     if (ids.length > 0) {
       const [{ data: fin }, { data: an }, { data: anCom }] = await Promise.all([
         supabase.from('financeiro').select('lote_id, tipo, valor').in('lote_id', ids),
-        supabase.from('animais').select('lote_id').in('lote_id', ids).eq('status', 'ativo'),
+        supabase.from('animais').select('lote_id, valor_compra').in('lote_id', ids).eq('status', 'ativo'),
         supabase.from('lote_animais_comerciais').select('lote_id').in('lote_id', ids),
       ])
       for (const f of fin ?? []) {
@@ -217,6 +217,7 @@ export default function LotesPage() {
       }
       for (const a of an ?? []) {
         counts[a.lote_id] = (counts[a.lote_id] ?? 0) + 1
+        if (a.valor_compra) custos[a.lote_id] = (custos[a.lote_id] ?? 0) + Number(a.valor_compra)
       }
       for (const a of anCom ?? []) {
         counts[a.lote_id] = (counts[a.lote_id] ?? 0) + 1
@@ -250,7 +251,7 @@ export default function LotesPage() {
     window.scrollTo(0, 0)
 
     const [{ data: an }, { data: fin }] = await Promise.all([
-      supabase.from('animais').select('id, brinco, nome, categoria, sexo, raca')
+      supabase.from('animais').select('id, brinco, nome, categoria, sexo, raca, valor_compra')
         .eq('lote_id', lote.id).eq('status', 'ativo').order('brinco'),
       supabase.from('financeiro').select('id, descricao, tipo, valor, data, categoria')
         .eq('lote_id', lote.id).order('data', { ascending: false }),
@@ -759,7 +760,8 @@ export default function LotesPage() {
 
   // ── DETALHE ──
   if (selected) {
-    const custosTotal = lancamentos.filter(l => l.tipo === 'saida').reduce((s, l) => s + Number(l.valor), 0)
+    const valorCompraAnimais = animais.reduce((s, a) => s + (a.valor_compra ? Number(a.valor_compra) : 0), 0)
+    const custosTotal = lancamentos.filter(l => l.tipo === 'saida').reduce((s, l) => s + Number(l.valor), 0) + valorCompraAnimais
     const custoPorCabeca = animais.length > 0 ? custosTotal / animais.length : null
 
     const totCusto = animaisCom.reduce((s, a) => s + (computeAnimalCom(a, selected).custo ?? 0), 0)

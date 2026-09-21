@@ -86,7 +86,12 @@ export default function RebanhoPage() {
   const [bulkPeso, setBulkPeso] = useState('')
   const [bulkPesoData, setBulkPesoData] = useState('')
   const [bulkSanitario, setBulkSanitario] = useState({ produto: '', data: '', proxima: '', via: 'injetavel' })
+  const [bulkDescarteJust, setBulkDescarteJust] = useState('')
   const [savingBulk, setSavingBulk] = useState(false)
+  // Descarte com justificativa
+  const [descarteTarget, setDescarteTarget] = useState<Animal | null>(null)
+  const [descarteJust, setDescarteJust] = useState('')
+  const [openDescarte, setOpenDescarte] = useState(false)
 
   async function addRaca() {
     const r = novaRaca.trim()
@@ -362,11 +367,29 @@ export default function RebanhoPage() {
     if (a.marcacao === 'descarte') {
       const { error } = await supabase.from('animais').update({ marcacao: null }).eq('id', a.id)
       if (error) { alert('Erro ao remover descarte: ' + error.message); return }
+      setDetail(null)
+      load()
     } else {
-      if (!confirm(`Marcar animal ${a.brinco} para descarte?`)) return
-      const { error } = await supabase.from('animais').update({ marcacao: 'descarte' }).eq('id', a.id)
-      if (error) { alert('Erro ao marcar descarte: ' + error.message); return }
+      setDescarteTarget(a)
+      setDescarteJust('')
+      setOpenDescarte(true)
     }
+  }
+
+  async function confirmDescarte() {
+    if (!descarteTarget) return
+    if (!descarteJust.trim()) { alert('Informe a justificativa para o descarte.'); return }
+    const hoje = new Date().toISOString().split('T')[0]
+    const { error } = await supabase.from('animais').update({ marcacao: 'descarte' }).eq('id', descarteTarget.id)
+    if (error) { alert('Erro ao marcar descarte: ' + error.message); return }
+    await supabase.from('animal_eventos').insert({
+      animal_id: descarteTarget.id,
+      data: hoje,
+      tipo: 'descarte',
+      descricao: descarteJust.trim(),
+    })
+    setOpenDescarte(false)
+    setDescarteTarget(null)
     setDetail(null)
     load()
   }
@@ -407,6 +430,7 @@ export default function RebanhoPage() {
     if (action === 'pesagem') { setBulkPeso(''); setBulkPesoData(hoje) }
     if (action === 'sanitario') setBulkSanitario({ produto: '', data: hoje, proxima: '', via: 'injetavel' })
     if (action === 'lote') setBulkLoteId('')
+    if (action === 'descarte') setBulkDescarteJust('')
     setBulkAction(action)
     setBulkOpen(true)
   }
@@ -419,9 +443,15 @@ export default function RebanhoPage() {
       case 'lote':
         await supabase.from('animais').update({ lote_id: bulkLoteId || null }).in('id', ids)
         break
-      case 'descarte':
+      case 'descarte': {
+        if (!bulkDescarteJust.trim()) { alert('Informe a justificativa para o descarte.'); setSavingBulk(false); return }
         await supabase.from('animais').update({ marcacao: 'descarte' } as any).in('id', ids)
+        const hoje = new Date().toISOString().split('T')[0]
+        await supabase.from('animal_eventos').insert(ids.map(id => ({
+          animal_id: id, data: hoje, tipo: 'descarte', descricao: bulkDescarteJust.trim(),
+        })))
         break
+      }
       case 'undescarte':
       case 'unatencao':
         await supabase.from('animais').update({ marcacao: null } as any).in('id', ids)
@@ -956,6 +986,29 @@ export default function RebanhoPage() {
         </div>
       )}
 
+      {/* Dialog: Justificativa de descarte */}
+      {openDescarte && (
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40" onClick={e => { if (e.target === e.currentTarget) setOpenDescarte(false) }}>
+          <div className="bg-white rounded-t-2xl md:rounded-2xl shadow-xl w-full max-w-md p-5 md:p-6">
+            <p className="font-bold text-gray-900 mb-1">Marcar para descarte</p>
+            <p className="text-sm text-gray-500 mb-4">Animal: <span className="font-semibold">{descarteTarget?.brinco}</span></p>
+            <label className="text-sm font-medium text-gray-700 block mb-1">Justificativa *</label>
+            <textarea
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none mb-4"
+              rows={3}
+              placeholder="Descreva o motivo do descarte..."
+              value={descarteJust}
+              onChange={e => setDescarteJust(e.target.value)}
+              autoFocus
+            />
+            <div className="flex gap-3">
+              <button className="flex-1 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50" onClick={() => setOpenDescarte(false)}>Cancelar</button>
+              <button className="flex-1 py-2 rounded-lg bg-orange-600 text-white text-sm font-medium hover:bg-orange-700" onClick={confirmDescarte}>Confirmar descarte</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Dialog: Confirmação de ação em massa */}
       <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
         <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto">
@@ -982,6 +1035,19 @@ export default function RebanhoPage() {
                   <option value="">Remover do lote (sem lote)</option>
                   {lotes.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
                 </select>
+              </div>
+            )}
+
+            {bulkAction === 'descarte' && (
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Justificativa *</label>
+                <textarea
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
+                  rows={3}
+                  placeholder="Descreva o motivo do descarte..."
+                  value={bulkDescarteJust}
+                  onChange={e => setBulkDescarteJust(e.target.value)}
+                />
               </div>
             )}
 
