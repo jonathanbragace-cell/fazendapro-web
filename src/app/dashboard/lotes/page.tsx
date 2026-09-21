@@ -176,7 +176,7 @@ export default function LotesPage() {
 
   const [openLanc, setOpenLanc] = useState(false)
   const [savingLanc, setSavingLanc] = useState(false)
-  const [lancForm, setLancForm] = useState({ tipo: 'saida', valor: '', descricao: '', categoria: '', data: hoje() })
+  const [lancForm, setLancForm] = useState({ tipo: 'saida', valor: '', descricao: '', categoria: '', data: hoje(), data_vencimento: '' })
 
   const [openAdd, setOpenAdd] = useState(false)
   const [addSearch, setAddSearch] = useState('')
@@ -545,23 +545,23 @@ export default function LotesPage() {
   async function salvarLanc() {
     if (!selected || !lancForm.valor) { alert('Valor é obrigatório.'); return }
     setSavingLanc(true)
+    const cat = lancForm.categoria.trim() || (lancForm.tipo === 'saida' ? 'Compra' : 'Venda')
+    const desc = lancForm.descricao.trim() || cat
     const { error } = await supabase.from('financeiro').insert({
       lote_id: selected.id,
       fazenda_id: selected.fazenda_id,
       tipo: lancForm.tipo,
       valor: parseFloat(lancForm.valor.replace(',', '.')),
       data: lancForm.data || hoje(),
-      descricao: lancForm.descricao.trim() || null,
-      categoria: lancForm.categoria.trim() || null,
-      status: 'pago',
+      descricao: desc,
+      categoria: cat,
+      status: 'pendente',
+      data_vencimento: lancForm.data_vencimento || null,
     })
     if (!error) {
       setOpenLanc(false)
-      setLancForm({ tipo: 'saida', valor: '', descricao: '', categoria: '', data: hoje() })
-      const { data: fin } = await supabase
-        .from('financeiro').select('id, descricao, tipo, valor, data, categoria')
-        .eq('lote_id', selected.id).order('data', { ascending: false })
-      setLancamentos(fin ?? [])
+      setLancForm({ tipo: 'saida', valor: '', descricao: '', categoria: '', data: hoje(), data_vencimento: '' })
+      await reloadLancamentos(selected.id)
       load()
     } else {
       alert(`Erro: ${error.message}`)
@@ -1192,7 +1192,7 @@ export default function LotesPage() {
               <div className="flex items-center justify-between mb-3">
                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Histórico financeiro</p>
                 <button
-                  onClick={() => { setLancForm({ tipo: 'saida', valor: '', descricao: '', categoria: '', data: hoje() }); setOpenLanc(true) }}
+                  onClick={() => { setLancForm({ tipo: 'saida', valor: '', descricao: '', categoria: '', data: hoje(), data_vencimento: '' }); setOpenLanc(true) }}
                   className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
                 >
                   <Plus size={12} /> Lançamento
@@ -1429,8 +1429,13 @@ export default function LotesPage() {
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">Categoria</label>
-                <Input placeholder="Ex: frete, alimentacao, medicamento..." value={lancForm.categoria}
+                <Input placeholder="Ex: Frete, Ração, Vacina..." value={lancForm.categoria}
                   onChange={e => setLancForm(p => ({ ...p, categoria: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">Vencimento</label>
+                <Input type="date" value={lancForm.data_vencimento}
+                  onChange={e => setLancForm(p => ({ ...p, data_vencimento: e.target.value }))} />
               </div>
               <Button className="w-full bg-green-700 hover:bg-green-800" onClick={salvarLanc} disabled={savingLanc}>
                 {savingLanc ? 'Salvando...' : 'Salvar lançamento'}
