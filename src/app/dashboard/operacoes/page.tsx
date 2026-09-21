@@ -39,14 +39,16 @@ type AnimalOp = {
   preco_venda_kg: number | null
 }
 
+const r2 = (v: number) => Math.round(v * 100) / 100
+
 function computeAnimal(a: AnimalOp, op: Operacao) {
   const desconto = a.desconto_pct ?? op.desconto_padrao_pct ?? 0
   const precoCompra = a.preco_compra_kg ?? op.preco_compra_kg ?? 0
-  const pesoDesc = a.peso_vivo_kg != null ? a.peso_vivo_kg * (1 - desconto / 100) : null
-  const custo = pesoDesc != null && precoCompra ? pesoDesc * precoCompra : null
-  const venda = a.peso_morto_kg != null && a.preco_venda_kg != null ? a.peso_morto_kg * a.preco_venda_kg : null
+  const pesoDesc = a.peso_vivo_kg != null ? r2(a.peso_vivo_kg * (1 - desconto / 100)) : null
+  const custo = pesoDesc != null && precoCompra ? r2(pesoDesc * precoCompra) : null
+  const venda = a.peso_morto_kg != null && a.preco_venda_kg != null ? r2(a.peso_morto_kg * a.preco_venda_kg) : null
   const rendimento = a.peso_morto_kg != null && a.peso_vivo_kg ? (a.peso_morto_kg / a.peso_vivo_kg) * 100 : null
-  const lucro = custo != null && venda != null ? venda - custo : null
+  const lucro = custo != null && venda != null ? r2(venda - custo) : null
   return { desconto, precoCompra, pesoDesc, custo, venda, rendimento, lucro }
 }
 
@@ -111,12 +113,27 @@ export default function OperacoesPage() {
     setLoading(false)
   }
 
-  async function loadAnimais(opId: string) {
+  async function syncTotais(opId: string, list: AnimalOp[], op: Operacao) {
+    const qtd = list.length
+    const custo = list.reduce((s, a) => {
+      const c = computeAnimal(a, op)
+      return s + (c.custo ?? 0)
+    }, 0)
+    await supabase.from('operacoes_comerciais').update({
+      qtd_compra: qtd,
+      valor_total_compra: Math.round(custo * 100) / 100,
+    }).eq('id', opId)
+  }
+
+  async function loadAnimais(opId: string, op?: Operacao) {
     setLoadingDetail(true)
     const { data } = await supabase.from('operacoes_animais')
       .select('id, operacao_id, identificacao, peso_vivo_kg, desconto_pct, preco_compra_kg, peso_morto_kg, preco_venda_kg')
       .eq('operacao_id', opId).order('created_at')
-    setAnimais(data ?? [])
+    const fresh = data ?? []
+    setAnimais(fresh)
+    const currentOp = op ?? selected
+    if (currentOp) await syncTotais(opId, fresh, currentOp)
     setLoadingDetail(false)
   }
 
@@ -154,7 +171,7 @@ export default function OperacoesPage() {
       fazenda_id: f.fazenda_id || fazendas[0]?.id || null,
       status: f.status,
       data_compra: f.data_compra || null,
-      vendedor: f.vendedor.trim() || null,
+      vendedor: f.vendedor.trim(),
       desconto_padrao_pct: f.desconto_padrao_pct ? parseFloat(f.desconto_padrao_pct.replace(',', '.')) : null,
       preco_compra_kg: f.preco_compra_kg ? parseFloat(f.preco_compra_kg.replace(',', '.')) : null,
       prazo_pagamento_dias: f.prazo_pagamento_dias ? parseInt(f.prazo_pagamento_dias) : null,
@@ -236,7 +253,9 @@ export default function OperacoesPage() {
   async function excluirAnimal(id: string) {
     if (!confirm('Remover este animal?')) return
     await supabase.from('operacoes_animais').delete().eq('id', id)
-    setAnimais(prev => prev.filter(a => a.id !== id))
+    const newList = animais.filter(a => a.id !== id)
+    setAnimais(newList)
+    if (selected) await syncTotais(selected.id, newList, selected)
   }
 
   async function togglePago() {
