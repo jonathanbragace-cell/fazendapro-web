@@ -21,17 +21,6 @@ type Lote = {
   observacao: string | null
   total_animais?: number
   custo_total?: number
-  // Campos de operação comercial (sem brinco individual)
-  operacao_comercial?: boolean | null
-  qtd_animais_compra?: number | null
-  tipo_peso?: string | null
-  peso_total_kg?: number | null
-  preco_compra_lote?: number | null
-  preco_venda_lote?: number | null
-  data_compra?: string | null
-  data_venda?: string | null
-  fornecedor?: string | null
-  comprador?: string | null
 }
 type Animal = {
   id: string; brinco: string; nome: string | null
@@ -42,18 +31,17 @@ type Lancamento = {
   valor: number; data: string | null; categoria: string | null
 }
 
-const TIPOS = ['recria', 'engorda', 'cria', 'descarte', 'comercial', 'outros']
+const TIPOS = ['cria', 'recria', 'engorda', 'quarentena', 'descarte']
 const TIPO_LABEL: Record<string, string> = {
-  recria: 'Recria', engorda: 'Engorda', cria: 'Cria',
-  descarte: 'Descarte', comercial: 'Comercial', outros: 'Outros',
+  cria: 'Cria', recria: 'Recria', engorda: 'Engorda',
+  quarentena: 'Quarentena', descarte: 'Descarte',
 }
 const TIPO_COLOR: Record<string, string> = {
-  recria:   'bg-blue-100 text-blue-700',
-  engorda:  'bg-green-100 text-green-700',
-  cria:     'bg-yellow-100 text-yellow-700',
-  descarte: 'bg-orange-100 text-orange-700',
-  comercial:'bg-violet-100 text-violet-700',
-  outros:   'bg-gray-100 text-gray-600',
+  cria:       'bg-yellow-100 text-yellow-700',
+  recria:     'bg-blue-100 text-blue-700',
+  engorda:    'bg-green-100 text-green-700',
+  quarentena: 'bg-orange-100 text-orange-700',
+  descarte:   'bg-red-100 text-red-700',
 }
 const CAT_LABEL: Record<string, string> = {
   matriz:'Matriz', bezerro:'Bezerro', novilha:'Novilha', touro:'Touro', boi:'Boi',
@@ -70,10 +58,6 @@ const hoje = () => new Date().toISOString().split('T')[0]
 
 const EMPTY_LOTE = {
   nome: '', tipo: 'recria', situacao: 'ativo', fazenda_id: '', data_criacao: hoje(),
-  operacao_comercial: false,
-  qtd_animais_compra: '', tipo_peso: 'vivo',
-  peso_total_kg: '', preco_compra_lote: '', preco_venda_lote: '',
-  data_compra: '', data_venda: '', fornecedor: '', comprador: '',
 }
 
 function TipoChip({ tipo }: { tipo: string | null }) {
@@ -119,7 +103,7 @@ export default function LotesPage() {
 
     let q = supabase
       .from('lotes')
-      .select('id, fazenda_id, nome, tipo, situacao, data_criacao, descricao, observacao, operacao_comercial, qtd_animais_compra, tipo_peso, peso_total_kg, preco_compra_lote, preco_venda_lote, data_compra, data_venda, fornecedor, comprador')
+      .select('id, fazenda_id, nome, tipo, situacao, data_criacao, descricao, observacao')
       .order('nome')
     if (situFiltro) q = (q as any).eq('situacao', situFiltro)
 
@@ -148,11 +132,6 @@ export default function LotesPage() {
         situacao: l.situacao, data_criacao: l.data_criacao,
         descricao: l.descricao, observacao: l.observacao,
         total_animais: counts[l.id] ?? 0, custo_total: custos[l.id] ?? 0,
-        operacao_comercial: l.operacao_comercial,
-        qtd_animais_compra: l.qtd_animais_compra, tipo_peso: l.tipo_peso,
-        peso_total_kg: l.peso_total_kg, preco_compra_lote: l.preco_compra_lote,
-        preco_venda_lote: l.preco_venda_lote, data_compra: l.data_compra,
-        data_venda: l.data_venda, fornecedor: l.fornecedor, comprador: l.comprador,
       }))
     )
     setLoading(false)
@@ -198,38 +177,17 @@ export default function LotesPage() {
       situacao: selected.situacao,
       fazenda_id: selected.fazenda_id ?? fazendas[0]?.id ?? '',
       data_criacao: selected.data_criacao ?? hoje(),
-      operacao_comercial: selected.operacao_comercial ?? false,
-      qtd_animais_compra: selected.qtd_animais_compra != null ? String(selected.qtd_animais_compra) : '',
-      tipo_peso: selected.tipo_peso ?? 'vivo',
-      peso_total_kg: selected.peso_total_kg != null ? String(selected.peso_total_kg) : '',
-      preco_compra_lote: selected.preco_compra_lote != null ? String(selected.preco_compra_lote) : '',
-      preco_venda_lote: selected.preco_venda_lote != null ? String(selected.preco_venda_lote) : '',
-      data_compra: selected.data_compra ?? '',
-      data_venda: selected.data_venda ?? '',
-      fornecedor: selected.fornecedor ?? '',
-      comprador: selected.comprador ?? '',
     })
     setOpenEdit(true)
   }
 
   function buildPayload(f: typeof form) {
-    const isComercial = f.tipo === 'comercial'
     return {
       nome: f.nome.trim(),
       tipo: f.tipo || null,
       situacao: f.situacao,
       fazenda_id: f.fazenda_id || fazendas[0]?.id || null,
       data_criacao: f.data_criacao || hoje(),
-      operacao_comercial: isComercial,
-      qtd_animais_compra: isComercial && f.qtd_animais_compra ? parseInt(String(f.qtd_animais_compra)) : null,
-      tipo_peso: isComercial ? (f.tipo_peso || 'vivo') : null,
-      peso_total_kg: isComercial && f.peso_total_kg ? parseFloat(String(f.peso_total_kg).replace(',', '.')) : null,
-      preco_compra_lote: isComercial && f.preco_compra_lote ? parseFloat(String(f.preco_compra_lote).replace(',', '.')) : null,
-      preco_venda_lote: isComercial && f.preco_venda_lote ? parseFloat(String(f.preco_venda_lote).replace(',', '.')) : null,
-      data_compra: isComercial && f.data_compra ? f.data_compra : null,
-      data_venda: isComercial && f.data_venda ? f.data_venda : null,
-      fornecedor: isComercial ? (String(f.fornecedor ?? '').trim() || null) : null,
-      comprador: isComercial ? (String(f.comprador ?? '').trim() || null) : null,
     }
   }
 
@@ -385,66 +343,6 @@ export default function LotesPage() {
                 </button>
               </div>
             </div>
-
-            {/* Ficha Comercial — só para lotes tipo 'comercial' */}
-            {selected.tipo === 'comercial' && (
-              <div className="bg-violet-50 rounded-2xl border border-violet-200 p-4 mb-3">
-                <p className="text-[11px] font-bold text-violet-400 uppercase tracking-widest mb-3">Operação Comercial</p>
-                <div className="space-y-2">
-                  {[
-                    ['Cabeças compradas', selected.qtd_animais_compra != null ? `${selected.qtd_animais_compra} cab.` : null],
-                    ['Tipo de peso', selected.tipo_peso === 'vivo' ? 'Peso vivo' : selected.tipo_peso === 'morto' ? 'Peso morto' : null],
-                    ['Peso total', selected.peso_total_kg != null ? `${Number(selected.peso_total_kg).toLocaleString('pt-BR')} kg` : null],
-                    ['Preço de compra', selected.preco_compra_lote != null ? fmt(Number(selected.preco_compra_lote)) : null],
-                    ['Preço de venda', selected.preco_venda_lote != null ? fmt(Number(selected.preco_venda_lote)) : null],
-                    ['Data de compra', fmtDate(selected.data_compra ?? null)],
-                    ['Data de venda', fmtDate(selected.data_venda ?? null)],
-                    ['Fornecedor', selected.fornecedor ?? null],
-                    ['Comprador', selected.comprador ?? null],
-                  ].map(([label, valor]) => {
-                    const v = valor && valor !== '—' ? valor : '—'
-                    return (
-                      <div key={label as string} className="flex justify-between items-baseline gap-3">
-                        <span className="text-sm text-violet-600 shrink-0">{label}</span>
-                        <span className={`text-sm font-semibold ${v === '—' ? 'text-gray-300' : 'text-gray-900'} text-right`}>{v}</span>
-                      </div>
-                    )
-                  })}
-                  {selected.preco_compra_lote != null && selected.preco_venda_lote != null && (
-                    <div className="flex justify-between items-baseline gap-3 pt-2 border-t border-violet-200">
-                      <span className="text-sm font-bold text-violet-700">Resultado</span>
-                      <span className={`text-sm font-bold ${Number(selected.preco_venda_lote) - Number(selected.preco_compra_lote) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                        {fmt(Number(selected.preco_venda_lote) - Number(selected.preco_compra_lote))}
-                      </span>
-                    </div>
-                  )}
-                  {selected.qtd_animais_compra != null && selected.preco_compra_lote != null && (
-                    <div className="flex justify-between items-baseline gap-3">
-                      <span className="text-sm text-violet-600 shrink-0">Custo/cabeça (compra)</span>
-                      <span className="text-sm font-semibold text-gray-900">
-                        {fmt(Number(selected.preco_compra_lote) / Number(selected.qtd_animais_compra))}
-                      </span>
-                    </div>
-                  )}
-                  {selected.qtd_animais_compra != null && selected.preco_venda_lote != null && (
-                    <div className="flex justify-between items-baseline gap-3">
-                      <span className="text-sm text-violet-600 shrink-0">Receita/cabeça (venda)</span>
-                      <span className="text-sm font-semibold text-gray-900">
-                        {fmt(Number(selected.preco_venda_lote) / Number(selected.qtd_animais_compra))}
-                      </span>
-                    </div>
-                  )}
-                  {selected.peso_total_kg != null && selected.preco_compra_lote != null && (
-                    <div className="flex justify-between items-baseline gap-3">
-                      <span className="text-sm text-violet-600 shrink-0">Custo/@</span>
-                      <span className="text-sm font-semibold text-gray-900">
-                        {fmt(Number(selected.preco_compra_lote) / (Number(selected.peso_total_kg) / 15))}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
 
             {/* Animais */}
             <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
@@ -694,7 +592,6 @@ function LoteForm({
   onSave: () => void
   label: string
 }) {
-  const isComercial = form.tipo === 'comercial'
   return (
     <div className="space-y-3 pt-2">
       <div>
@@ -705,79 +602,14 @@ function LoteForm({
       <div>
         <label className="text-sm font-medium text-gray-700 block mb-1">Tipo</label>
         <div className="flex flex-wrap gap-2">
-          {(['recria','engorda','cria','descarte','comercial','outros'] as const).map(t => (
+          {TIPOS.map(t => (
             <button key={t} type="button" onClick={() => setF('tipo', t)}
-              className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${form.tipo === t ? (t === 'comercial' ? 'bg-violet-600 text-white border-violet-600' : 'bg-green-700 text-white border-green-700') : 'border-gray-200 text-gray-600 hover:border-green-300'}`}>
+              className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${form.tipo === t ? 'bg-green-700 text-white border-green-700' : 'border-gray-200 text-gray-600 hover:border-green-300'}`}>
               {TIPO_LABEL[t]}
             </button>
           ))}
         </div>
-        {isComercial && (
-          <p className="text-xs text-violet-600 mt-1">Operação de compra/venda sem brinco individual — preencha a ficha abaixo.</p>
-        )}
       </div>
-
-      {/* Campos comerciais */}
-      {isComercial && (
-        <div className="bg-violet-50 border border-violet-200 rounded-xl p-3 space-y-3">
-          <p className="text-xs font-bold text-violet-500 uppercase tracking-widest">Ficha Comercial</p>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-gray-700 block mb-1">Cabeças compradas</label>
-              <Input type="number" placeholder="Ex: 50" value={String(form.qtd_animais_compra ?? '')}
-                onChange={e => setF('qtd_animais_compra', e.target.value)} />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-700 block mb-1">Tipo de peso</label>
-              <div className="flex gap-2">
-                {(['vivo','morto'] as const).map(tp => (
-                  <button key={tp} type="button" onClick={() => setF('tipo_peso', tp)}
-                    className={`flex-1 py-2 rounded-lg border text-xs font-medium transition-colors ${form.tipo_peso === tp ? 'bg-violet-600 text-white border-violet-600' : 'border-gray-200 text-gray-600'}`}>
-                    {tp === 'vivo' ? 'Peso vivo' : 'Peso morto'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-700 block mb-1">Peso total (kg)</label>
-            <Input type="number" placeholder="Ex: 18500" value={String(form.peso_total_kg ?? '')}
-              onChange={e => setF('peso_total_kg', e.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-gray-700 block mb-1">Preço de compra (R$)</label>
-              <Input placeholder="0,00" value={String(form.preco_compra_lote ?? '')}
-                onChange={e => setF('preco_compra_lote', e.target.value)} inputMode="decimal" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-700 block mb-1">Preço de venda (R$)</label>
-              <Input placeholder="0,00" value={String(form.preco_venda_lote ?? '')}
-                onChange={e => setF('preco_venda_lote', e.target.value)} inputMode="decimal" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-gray-700 block mb-1">Data da compra</label>
-              <Input type="date" value={form.data_compra ?? ''} onChange={e => setF('data_compra', e.target.value)} />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-700 block mb-1">Data da venda</label>
-              <Input type="date" value={form.data_venda ?? ''} onChange={e => setF('data_venda', e.target.value)} />
-            </div>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-700 block mb-1">Fornecedor</label>
-            <Input placeholder="Nome do vendedor / fazenda de origem" value={String(form.fornecedor ?? '')}
-              onChange={e => setF('fornecedor', e.target.value)} />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-700 block mb-1">Comprador</label>
-            <Input placeholder="Nome do comprador / destino" value={String(form.comprador ?? '')}
-              onChange={e => setF('comprador', e.target.value)} />
-          </div>
-        </div>
-      )}
 
       <div>
         <label className="text-sm font-medium text-gray-700 block mb-1">Situação</label>
