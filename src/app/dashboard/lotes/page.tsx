@@ -179,12 +179,16 @@ export default function LotesPage() {
   const [lancForm, setLancForm] = useState({ tipo: 'saida', valor: '', descricao: '', categoria: '', data: hoje(), data_vencimento: '' })
 
   const [openAdd, setOpenAdd] = useState(false)
+  const [addTab, setAddTab] = useState<'brinco' | 'avulso'>('brinco')
   const [addSearch, setAddSearch] = useState('')
   const [addCatFilter, setAddCatFilter] = useState('')
   const [availAnimais, setAvailAnimais] = useState<Animal[]>([])
   const [addIds, setAddIds] = useState<Set<string>>(new Set())
   const [savingAdd, setSavingAdd] = useState(false)
   const [loadingAvail, setLoadingAvail] = useState(false)
+  const [avulsoQtd, setAvulsoQtd] = useState('')
+  const [avulsoCat, setAvulsoCat] = useState('boi')
+  const [avulsoValor, setAvulsoValor] = useState('')
 
   async function load() {
     setLoading(true)
@@ -536,6 +540,38 @@ export default function LotesPage() {
     setSavingAdd(false)
     setOpenAdd(false)
     setAddIds(new Set())
+    await refreshAnimais(selected.id)
+    load()
+  }
+
+  async function handleAddAvulso() {
+    if (!selected || !avulsoQtd) return
+    const qtd = parseInt(avulsoQtd)
+    if (isNaN(qtd) || qtd <= 0) { alert('Informe uma quantidade válida.'); return }
+    setSavingAdd(true)
+    const { data: existing } = await supabase.from('animais').select('brinco').ilike('brinco', 'S/N-%')
+    const maxNum = (existing ?? []).reduce((max, a) => {
+      const n = parseInt((a.brinco as string).replace('S/N-', ''))
+      return isNaN(n) ? max : Math.max(max, n)
+    }, 0)
+    const sexo = avulsoCat === 'boi' || avulsoCat === 'touro' ? 'macho' : 'femea'
+    const valorUnit = avulsoValor ? parseFloat(avulsoValor.replace(',', '.')) : null
+    const animals = Array.from({ length: qtd }, (_, i) => ({
+      brinco: `S/N-${String(maxNum + i + 1).padStart(4, '0')}`,
+      categoria: avulsoCat,
+      sexo,
+      origem: 'compra',
+      status: 'ativo',
+      lote_id: selected.id,
+      fazenda_id: selected.fazenda_id,
+      valor_compra: valorUnit,
+    }))
+    const { error } = await supabase.from('animais').insert(animals as any)
+    if (error) { alert(`Erro: ${error.message}`); setSavingAdd(false); return }
+    setSavingAdd(false)
+    setOpenAdd(false)
+    setAvulsoQtd('')
+    setAvulsoValor('')
     await refreshAnimais(selected.id)
     load()
   }
@@ -1180,7 +1216,7 @@ export default function LotesPage() {
                   <button
                     onClick={() => {
                       setAddSearch(''); setAddCatFilter(''); setAvailAnimais([]); setAddIds(new Set())
-                      setOpenAdd(true); loadAvailAnimais('', '')
+                      setAddTab('brinco'); setOpenAdd(true); loadAvailAnimais('', '')
                     }}
                     className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
                   >
@@ -1252,55 +1288,100 @@ export default function LotesPage() {
               <DialogTitle>Adicionar ao lote — {selected?.nome}</DialogTitle>
             </DialogHeader>
             <div className="pt-1 space-y-3">
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <Input placeholder="Buscar brinco..." className="pl-9" value={addSearch}
-                  onChange={e => { setAddSearch(e.target.value); loadAvailAnimais(e.target.value, addCatFilter) }} />
+              {/* Tab toggle */}
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                <button className={`flex-1 py-2 text-xs font-semibold transition-colors ${addTab === 'brinco' ? 'bg-green-700 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+                  onClick={() => setAddTab('brinco')}>Por brinco</button>
+                <button className={`flex-1 py-2 text-xs font-semibold transition-colors ${addTab === 'avulso' ? 'bg-green-700 text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+                  onClick={() => setAddTab('avulso')}>Sem brinco (novo)</button>
               </div>
-              <div className="flex gap-2 flex-wrap">
-                {(['', 'matriz', 'bezerro', 'novilha', 'touro', 'boi'] as const).map(c => (
-                  <button key={c} onClick={() => { setAddCatFilter(c); loadAvailAnimais(addSearch, c) }}
-                    className={`h-[34px] px-3 rounded-full text-xs font-semibold transition-colors ${addCatFilter === c ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                    {c ? (CAT_LABEL[c] ?? c) : 'Todos'}
-                  </button>
-                ))}
-              </div>
-              {loadingAvail && <p className="text-xs text-gray-400 text-center py-4">Carregando...</p>}
-              {!loadingAvail && availAnimais.length === 0 && (
-                <p className="text-xs text-gray-400 text-center py-4">Nenhum animal encontrado.</p>
-              )}
-              {!loadingAvail && availAnimais.length > 0 && (
-                <div className="border border-gray-200 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
-                  {availAnimais.map((a, i) => {
-                    const jaNoLote = animais.some(x => x.id === a.id)
-                    return (
-                      <label key={a.id}
-                        className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 ${i > 0 ? 'border-t border-gray-100' : ''} ${jaNoLote ? 'opacity-40' : ''}`}>
-                        <input type="checkbox" checked={addIds.has(a.id) || jaNoLote} disabled={jaNoLote}
-                          onChange={e => setAddIds(prev => {
-                            const next = new Set(prev)
-                            e.target.checked ? next.add(a.id) : next.delete(a.id)
-                            return next
-                          })} className="rounded border-gray-300 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-gray-900">{a.brinco}</p>
-                          <p className="text-xs text-gray-500">
-                            {CAT_LABEL[a.categoria] ?? a.categoria} · {a.sexo === 'femea' ? 'Fêmea' : 'Macho'}
-                            {jaNoLote && ' · já neste lote'}
-                          </p>
-                        </div>
-                      </label>
-                    )
-                  })}
+
+              {addTab === 'brinco' && (<>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Input placeholder="Buscar brinco..." className="pl-9" value={addSearch}
+                    onChange={e => { setAddSearch(e.target.value); loadAvailAnimais(e.target.value, addCatFilter) }} />
                 </div>
-              )}
-              <div className="flex gap-2 pt-1">
-                <Button variant="outline" className="flex-1" onClick={() => setOpenAdd(false)}>Cancelar</Button>
-                <Button className="flex-1 bg-green-700 hover:bg-green-800" onClick={handleAddAnimais}
-                  disabled={savingAdd || addIds.size === 0}>
-                  {savingAdd ? 'Adicionando...' : `Adicionar${addIds.size > 0 ? ` (${addIds.size})` : ''}`}
-                </Button>
-              </div>
+                <div className="flex gap-2 flex-wrap">
+                  {(['', 'matriz', 'bezerro', 'novilha', 'touro', 'boi'] as const).map(c => (
+                    <button key={c} onClick={() => { setAddCatFilter(c); loadAvailAnimais(addSearch, c) }}
+                      className={`h-[34px] px-3 rounded-full text-xs font-semibold transition-colors ${addCatFilter === c ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                      {c ? (CAT_LABEL[c] ?? c) : 'Todos'}
+                    </button>
+                  ))}
+                </div>
+                {loadingAvail && <p className="text-xs text-gray-400 text-center py-4">Carregando...</p>}
+                {!loadingAvail && availAnimais.length === 0 && (
+                  <p className="text-xs text-gray-400 text-center py-4">Nenhum animal encontrado.</p>
+                )}
+                {!loadingAvail && availAnimais.length > 0 && (
+                  <div className="border border-gray-200 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
+                    {availAnimais.map((a, i) => {
+                      const jaNoLote = animais.some(x => x.id === a.id)
+                      return (
+                        <label key={a.id}
+                          className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 ${i > 0 ? 'border-t border-gray-100' : ''} ${jaNoLote ? 'opacity-40' : ''}`}>
+                          <input type="checkbox" checked={addIds.has(a.id) || jaNoLote} disabled={jaNoLote}
+                            onChange={e => setAddIds(prev => {
+                              const next = new Set(prev)
+                              e.target.checked ? next.add(a.id) : next.delete(a.id)
+                              return next
+                            })} className="rounded border-gray-300 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-gray-900">{a.brinco}</p>
+                            <p className="text-xs text-gray-500">
+                              {CAT_LABEL[a.categoria] ?? a.categoria} · {a.sexo === 'femea' ? 'Fêmea' : 'Macho'}
+                              {jaNoLote && ' · já neste lote'}
+                            </p>
+                          </div>
+                        </label>
+                      )
+                    })}
+                  </div>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <Button variant="outline" className="flex-1" onClick={() => setOpenAdd(false)}>Cancelar</Button>
+                  <Button className="flex-1 bg-green-700 hover:bg-green-800" onClick={handleAddAnimais}
+                    disabled={savingAdd || addIds.size === 0}>
+                    {savingAdd ? 'Adicionando...' : `Adicionar${addIds.size > 0 ? ` (${addIds.size})` : ''}`}
+                  </Button>
+                </div>
+              </>)}
+
+              {addTab === 'avulso' && (<>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Cria animais sem brinco definido (identificados como S/N-XXXX). Você poderá atribuir o brinco depois na ficha de cada animal.
+                </p>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Quantidade <span className="text-red-500">*</span></label>
+                  <Input type="number" min="1" placeholder="Ex: 5" value={avulsoQtd}
+                    onChange={e => setAvulsoQtd(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Categoria</label>
+                  <div className="flex gap-2 flex-wrap">
+                    {(['boi', 'novilha', 'bezerro', 'matriz', 'touro'] as const).map(c => (
+                      <button key={c} onClick={() => setAvulsoCat(c)}
+                        className={`h-[34px] px-3 rounded-full text-xs font-semibold transition-colors ${avulsoCat === c ? 'bg-green-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                        {CAT_LABEL[c] ?? c}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Valor de compra por animal (R$)</label>
+                  <Input placeholder="Ex: 2800,00" value={avulsoValor}
+                    onChange={e => setAvulsoValor(e.target.value)} />
+                  <p className="text-xs text-gray-400 mt-1">Entra no custo do lote. Deixe em branco se não souber.</p>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <Button variant="outline" className="flex-1" onClick={() => setOpenAdd(false)}>Cancelar</Button>
+                  <Button className="flex-1 bg-green-700 hover:bg-green-800" onClick={handleAddAvulso}
+                    disabled={savingAdd || !avulsoQtd || parseInt(avulsoQtd) <= 0}>
+                    {savingAdd ? 'Criando...' : `Criar${avulsoQtd && parseInt(avulsoQtd) > 0 ? ` (${avulsoQtd})` : ''}`}
+                  </Button>
+                </div>
+              </>)}
             </div>
           </DialogContent>
         </Dialog>
