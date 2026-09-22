@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   Plus, TrendingUp, TrendingDown, Wallet, Trash2, X, Check, Clock,
-  ChevronDown, ChevronRight, Paperclip, Eye,
+  ChevronDown, ChevronRight, Paperclip, Eye, Pencil,
 } from 'lucide-react'
 
 type Mov = {
@@ -44,6 +44,7 @@ const hoje = () => new Date().toISOString().split('T')[0]
 
 export default function FinanceiroPage() {
   const [movs, setMovs]             = useState<Mov[]>([])
+  const [editing, setEditing]       = useState<Mov | null>(null)
   const [kpiTotals, setKpiTotals]   = useState({ entradas: 0, saidas: 0, aPagar: 0, aReceber: 0 })
   const [pagamentosMap, setPagamentosMap] = useState<Record<string, Pagamento[]>>({})
   const [expandedMov, setExpandedMov] = useState<string | null>(null)
@@ -260,6 +261,18 @@ export default function FinanceiroPage() {
     const iso = y && m && d ? `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}` : new Date().toISOString().split('T')[0]
     setSaving(true)
     const status = form.pendente ? 'pendente' : (form.tipo === 'entrada' ? 'recebido' : 'pago')
+
+    if (editing) {
+      const { error } = await supabase.from('financeiro').update({
+        tipo: form.tipo, categoria: form.categoria, valor: val,
+        data: iso, descricao: form.descricao.trim() || form.categoria,
+        status, data_vencimento: form.pendente && form.data_vencimento ? form.data_vencimento : null,
+        lote_id: form.lote_id || null,
+      }).eq('id', editing.id)
+      if (error) { alert(`Erro ao editar: ${error.message}`); setSaving(false); return }
+      setEditing(null); setSaving(false); setOpen(false); load()
+      return
+    }
     const basePayload: any = {
       fazenda_id: form.fazenda_id || fazendas[0]?.id,
       tipo: form.tipo, categoria: form.categoria,
@@ -311,7 +324,26 @@ export default function FinanceiroPage() {
 
   function abrirNovo() {
     const p = cats.find(c => c.tipo === 'entrada')
+    setEditing(null)
     setForm({ tipo: 'entrada', categoria: p?.nome ?? '', valor: '', data: new Date().toLocaleDateString('pt-BR'), descricao: '', fazenda_id: fazendas[0]?.id ?? '', pendente: false, data_vencimento: '', lote_id: '', ratear: false, rateioLotes: [], rateioMethod: 'igual' })
+    setAddingCat(false); setNovaCat(''); setOpen(true)
+  }
+
+  function abrirEdicao(mov: Mov) {
+    setEditing(mov)
+    const [y, mo, d] = mov.data.split('-')
+    setForm({
+      tipo: mov.tipo,
+      categoria: mov.categoria,
+      valor: Number(mov.valor).toFixed(2).replace('.', ','),
+      data: `${d}/${mo}/${y}`,
+      descricao: mov.descricao,
+      fazenda_id: fazendas[0]?.id ?? '',
+      pendente: mov.status === 'pendente',
+      data_vencimento: mov.data_vencimento ?? '',
+      lote_id: mov.lote_id ?? '',
+      ratear: false, rateioLotes: [], rateioMethod: 'igual',
+    })
     setAddingCat(false); setNovaCat(''); setOpen(true)
   }
 
@@ -507,6 +539,9 @@ export default function FinanceiroPage() {
                                 <span className="hidden sm:inline">{m.tipo === 'entrada' ? 'Receber' : 'Pagar'}</span>
                               </button>
                             )}
+                            <button onClick={() => abrirEdicao(m)} className="text-gray-300 hover:text-blue-500 p-1" title="Editar">
+                              <Pencil size={13} />
+                            </button>
                             <button onClick={() => handleDelete(m.id)} className="text-gray-300 hover:text-red-500 p-1">
                               <Trash2 size={14} />
                             </button>
@@ -555,10 +590,10 @@ export default function FinanceiroPage() {
         }
       </div>
 
-      {/* Modal novo lançamento */}
-      <Dialog open={open} onOpenChange={setOpen}>
+      {/* Modal novo / editar lançamento */}
+      <Dialog open={open} onOpenChange={v => { if (!v) { setOpen(false); setEditing(null) } }}>
         <DialogContent className="w-full max-w-md max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-14 max-sm:rounded-b-none max-sm:rounded-t-2xl max-sm:translate-x-0 max-sm:translate-y-0 max-sm:left-0 max-sm:max-w-none overflow-y-auto max-h-[90vh] max-sm:max-h-full">
-          <DialogHeader><DialogTitle>Novo lançamento</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editing ? 'Editar lançamento' : 'Novo lançamento'}</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-2">
             {fazendas.length > 1 && (
               <div>
