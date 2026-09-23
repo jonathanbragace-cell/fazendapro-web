@@ -260,14 +260,18 @@ export default function LotesPage() {
     if (!data) { setLoading(false); return }
 
     const ids = data.map((l: any) => l.id)
+    const comIds = data.filter((l: any) => l.tipo === 'comercial').map((l: any) => l.id)
     let custos: Record<string, number> = {}
     let counts: Record<string, number> = {}
     if (ids.length > 0) {
-      const [{ data: fin }, { data: an }, { data: anCom }] = await Promise.all([
+      const [{ data: fin }, { data: an }, anComRes] = await Promise.all([
         supabase.from('financeiro').select('lote_id, tipo, valor, animal_id').in('lote_id', ids),
         supabase.from('animais').select('id, lote_id, valor_compra').in('lote_id', ids).eq('status', 'ativo'),
-        supabase.from('lote_animais_comerciais').select('lote_id').in('lote_id', ids),
+        comIds.length > 0
+          ? supabase.from('lote_animais_comerciais').select('lote_id').in('lote_id', comIds)
+          : Promise.resolve({ data: [] as { lote_id: string }[] }),
       ])
+      const anCom = anComRes.data
       // Group financeiro by lote
       const finByLote: Record<string, { tipo: string; valor: number; animal_id: string | null }[]> = {}
       for (const f of fin ?? []) {
@@ -506,7 +510,7 @@ export default function LotesPage() {
   }
 
   async function salvarAnimalCom() {
-    if (!selected) return
+    if (!selected || selected.tipo !== 'comercial') return
     setSavingAnimalCom(true)
     const row = {
       lote_id: selected.id,
