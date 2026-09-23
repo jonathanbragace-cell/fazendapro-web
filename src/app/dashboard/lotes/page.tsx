@@ -773,6 +773,17 @@ export default function LotesPage() {
     await reloadLancamentos(lote.id)
   }
 
+  function openVendaAnimalForAnimal(animal: Animal) {
+    const existing = vendaAnimais.find(v => v.animal_id === animal.id)
+    if (existing) {
+      openEditVendaAnimal(existing)
+    } else {
+      setEditingVendaAnimalId(null)
+      setVendaAnimalForm({ ...EMPTY_VENDA_ANIMAL, animal_id: animal.id })
+      setOpenVendaAnimal(true)
+    }
+  }
+
   function openVendaHeaderEdit() {
     if (!selected) return
     setVendaHeaderForm({
@@ -1206,11 +1217,10 @@ export default function LotesPage() {
     const totVenda = animaisCom.reduce((s, a) => s + (computeAnimalCom(a, selected).venda ?? 0), 0)
     const totDespesas = despesas.reduce((s, d) => s + Number(d.valor), 0)
     const totLucro = r2(totVenda - totCusto - totDespesas)
-    const totVendaRebanho = r2(vendaAnimais.reduce((s, a) => s + (computeAnimalVenda(a).venda ?? 0), 0))
-    const totPesoVendaRebanho = r2(vendaAnimais.reduce((s, a) => {
-      const calc = computeAnimalVenda(a)
-      return s + (a.peso_morto_kg ?? calc.pesoDesc ?? 0)
-    }, 0))
+    const totVendaRebanho    = r2(vendaAnimais.reduce((s, a) => s + (computeAnimalVenda(a).venda ?? 0), 0))
+    const totPesoVivoRebanho = r2(vendaAnimais.reduce((s, a) => s + (a.peso_vivo_kg ?? 0), 0))
+    const totPesoDescRebanho = r2(vendaAnimais.reduce((s, a) => s + (computeAnimalVenda(a).pesoDesc ?? 0), 0))
+    const totPesoMortoRebanho = r2(vendaAnimais.reduce((s, a) => s + (a.peso_morto_kg ?? 0), 0))
 
     const isCom = selected.tipo === 'comercial'
 
@@ -1612,43 +1622,119 @@ export default function LotesPage() {
               </>
             )}
 
-            {/* Animais rebanho — somente para lotes não-comerciais */}
+            {/* Animais rebanho com romaneio de venda inline */}
             {!isCom && (
               <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
                     Animais {animais.length > 0 ? `(${animais.length})` : ''}
                   </p>
-                  <button
-                    onClick={() => {
-                      setAddSearch(''); setAddCatFilter(''); setAvailAnimais([]); setAddIds(new Set())
-                      setAddTab('brinco'); setAvulsoQtd(''); setAvulsoNome(''); setAvulsoData(''); setAvulsoSexo('macho'); setAvulsoCat('boi'); setAvulsoOrigem('compra'); setAvulsoRaca('Nelore'); setAvulsoValor(''); setAvulsoMaeBrinco(''); setAvulsoFornecedor(''); setAvulsoPeso(''); setAvulsoObs(''); setOpenAdd(true); loadAvailAnimais('', '')
-                    }}
-                    className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
-                  >
-                    <Plus size={12} /> Adicionar
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {vendaAnimais.length > 0 && (
+                      <button onClick={gerarRelatorioVenda}
+                        className="flex items-center gap-1 text-xs font-semibold text-gray-500 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 transition-colors">
+                        <FileText size={12} /> PDF
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setAddSearch(''); setAddCatFilter(''); setAvailAnimais([]); setAddIds(new Set())
+                        setAddTab('brinco'); setAvulsoQtd(''); setAvulsoNome(''); setAvulsoData(''); setAvulsoSexo('macho'); setAvulsoCat('boi'); setAvulsoOrigem('compra'); setAvulsoRaca('Nelore'); setAvulsoValor(''); setAvulsoMaeBrinco(''); setAvulsoFornecedor(''); setAvulsoPeso(''); setAvulsoObs(''); setOpenAdd(true); loadAvailAnimais('', '')
+                      }}
+                      className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
+                    >
+                      <Plus size={12} /> Adicionar
+                    </button>
+                  </div>
                 </div>
                 {animais.length === 0 && (
                   <p className="text-sm text-gray-400">Nenhum animal neste lote.</p>
                 )}
-                {animais.map((a, i) => (
-                  <div key={a.id} className={`flex items-center gap-3 ${i > 0 ? 'pt-3 mt-3 border-t border-gray-100' : ''}`}>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm text-gray-900">{a.brinco}</p>
-                      {a.nome && <p className="text-xs text-gray-500">{a.nome}</p>}
+                {animais.map((a, i) => {
+                  const va = vendaAnimais.find(v => v.animal_id === a.id)
+                  const calc = va ? computeAnimalVenda(va) : null
+                  return (
+                    <div key={a.id} className={`py-2.5 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm text-gray-900">{a.brinco}</p>
+                          <p className="text-xs text-gray-400">
+                            {CAT_LABEL[a.categoria] ?? a.categoria} · {a.sexo === 'femea' ? 'Fêmea' : 'Macho'}
+                          </p>
+                        </div>
+                        {calc?.venda != null
+                          ? <p className="text-sm font-semibold text-green-700 shrink-0">{fmt(calc.venda)}</p>
+                          : <span className="text-xs text-gray-300 shrink-0">sem peso</span>
+                        }
+                        <button onClick={() => openVendaAnimalForAnimal(a)}
+                          title="Lançar/editar venda"
+                          className="p-1.5 text-gray-300 hover:text-blue-500 transition-colors shrink-0">
+                          <Pencil size={13} />
+                        </button>
+                        <button onClick={() => handleRemoverAnimal(a.id)} title="Remover do lote"
+                          className="p-1.5 text-gray-300 hover:text-red-400 transition-colors shrink-0">
+                          <X size={13} />
+                        </button>
+                      </div>
+                      {va && (
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                          {va.peso_vivo_kg != null && (
+                            <span className="text-xs text-gray-400">{va.peso_vivo_kg} kg vivo</span>
+                          )}
+                          {va.desconto_pct ? (
+                            <span className="text-xs text-gray-400">{va.desconto_pct}% desc</span>
+                          ) : null}
+                          {calc?.pesoDesc != null && (
+                            <span className="text-xs text-gray-400">→ {calc.pesoDesc} kg c/desc</span>
+                          )}
+                          {va.peso_morto_kg != null && (
+                            <span className="text-xs text-gray-400">{va.peso_morto_kg} kg morto</span>
+                          )}
+                          {va.preco_venda_kg != null && (
+                            <span className="text-xs text-gray-400">R$ {va.preco_venda_kg}/kg</span>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap justify-end">
-                      <span className="text-xs text-gray-500">{CAT_LABEL[a.categoria] ?? a.categoria}</span>
-                      <span className="text-xs text-gray-400">{a.sexo === 'femea' ? 'Fêmea' : 'Macho'}</span>
-                      <span className="text-xs text-gray-400">{a.raca}</span>
-                      <button onClick={() => handleRemoverAnimal(a.id)} title="Remover do lote"
-                        className="p-1 text-gray-300 hover:text-red-400 transition-colors">
-                        <X size={14} />
-                      </button>
+                  )
+                })}
+                {/* Totais */}
+                {vendaAnimais.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-200 space-y-1.5">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Qtd</span>
+                      <span className="font-semibold text-gray-900">{vendaAnimais.length} cab.</span>
+                    </div>
+                    {totPesoVivoRebanho > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Peso vivo total</span>
+                        <span className="font-semibold text-gray-900">
+                          {totPesoVivoRebanho.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} kg
+                        </span>
+                      </div>
+                    )}
+                    {totPesoDescRebanho > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Peso c/ desc total</span>
+                        <span className="font-semibold text-gray-900">
+                          {totPesoDescRebanho.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} kg
+                        </span>
+                      </div>
+                    )}
+                    {totPesoMortoRebanho > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Peso morto total</span>
+                        <span className="font-semibold text-gray-900">
+                          {totPesoMortoRebanho.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} kg
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-sm pt-1.5 border-t border-gray-100">
+                      <span className="font-semibold text-gray-700">Valor total</span>
+                      <span className="font-bold text-green-700">{fmt(totVendaRebanho)}</span>
                     </div>
                   </div>
-                ))}
+                )}
               </div>
             )}
 
@@ -1702,88 +1788,6 @@ export default function LotesPage() {
                         <Button className="flex-1 bg-green-700 hover:bg-green-800" onClick={salvarVendaHeader} disabled={savingVendaHeader}>
                           {savingVendaHeader ? 'Salvando...' : 'Salvar'}
                         </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Animais do romaneio */}
-                <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
-                      Romaneio {vendaAnimais.length > 0 ? `(${vendaAnimais.length})` : ''}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      {vendaAnimais.length > 0 && (
-                        <button
-                          onClick={gerarRelatorioVenda}
-                          className="flex items-center gap-1 text-xs font-semibold text-gray-500 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 transition-colors"
-                        >
-                          <FileText size={12} /> PDF
-                        </button>
-                      )}
-                      {animais.length > 0 && (
-                        <button
-                          onClick={openNewVendaAnimal}
-                          className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
-                        >
-                          <Plus size={12} /> Animal
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {vendaAnimais.length === 0 && (
-                    <p className="text-sm text-gray-400">Nenhum animal no romaneio.</p>
-                  )}
-                  {vendaAnimais.map((a, i) => {
-                    const calc = computeAnimalVenda(a)
-                    const basePeso = a.peso_morto_kg ?? calc.pesoDesc
-                    return (
-                      <div key={a.id} className={`flex items-center gap-2 py-2.5 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900">{a.brinco}</p>
-                          <p className="text-xs text-gray-400">
-                            {a.peso_vivo_kg != null ? `${a.peso_vivo_kg} kg vivo` : ''}
-                            {a.desconto_pct ? ` · ${a.desconto_pct}% desc` : ''}
-                            {basePeso != null ? ` · ${basePeso} kg base` : ''}
-                            {a.peso_morto_kg != null ? ' (grampo)' : ''}
-                          </p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          {calc.venda != null && (
-                            <p className="text-sm font-semibold text-green-700">{fmt(calc.venda)}</p>
-                          )}
-                          {a.preco_venda_kg != null && (
-                            <p className="text-xs text-gray-400">R$ {a.preco_venda_kg}/kg</p>
-                          )}
-                        </div>
-                        <button onClick={() => openEditVendaAnimal(a)}
-                          className="p-1.5 text-gray-300 hover:text-blue-500 transition-colors shrink-0">
-                          <Pencil size={13} />
-                        </button>
-                        <button onClick={() => excluirVendaAnimal(a.id)}
-                          className="p-1.5 text-gray-300 hover:text-red-400 transition-colors shrink-0">
-                          <X size={13} />
-                        </button>
-                      </div>
-                    )
-                  })}
-                  {/* Totais do romaneio */}
-                  {vendaAnimais.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Qtd</span>
-                        <span className="font-semibold text-gray-900">{vendaAnimais.length} cab.</span>
-                      </div>
-                      {totPesoVendaRebanho > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-500">Peso total</span>
-                          <span className="font-semibold text-gray-900">{totPesoVendaRebanho.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} kg</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between text-sm">
-                        <span className="font-semibold text-gray-700">Valor total</span>
-                        <span className="font-bold text-green-700">{fmt(totVendaRebanho)}</span>
                       </div>
                     </div>
                   )}
@@ -1881,37 +1885,14 @@ export default function LotesPage() {
         <Dialog open={openVendaAnimal} onOpenChange={setOpenVendaAnimal}>
           <DialogContent className="max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{editingVendaAnimalId ? 'Editar animal — romaneio' : 'Adicionar ao romaneio'}</DialogTitle>
+              <DialogTitle>
+                {editingVendaAnimalId
+                  ? `Romaneio — ${vendaAnimais.find(v => v.id === editingVendaAnimalId)?.brinco ?? ''}`
+                  : `Romaneio — ${animais.find(a => a.id === vendaAnimalForm.animal_id)?.brinco ?? ''}`
+                }
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-3 pt-2">
-              {!editingVendaAnimalId && (
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">Animal (brinco)</label>
-                  <div className="border border-gray-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
-                    {animais.filter(a => !vendaAnimais.some(v => v.animal_id === a.id)).length === 0 && (
-                      <p className="text-xs text-gray-400 text-center py-4">Todos os animais já estão no romaneio.</p>
-                    )}
-                    {animais.filter(a => !vendaAnimais.some(v => v.animal_id === a.id)).map((a, i, arr) => (
-                      <label key={a.id}
-                        className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
-                        <input type="radio" name="venda_animal" value={a.id}
-                          checked={vendaAnimalForm.animal_id === a.id}
-                          onChange={() => setVendaAnimalForm(p => ({ ...p, animal_id: a.id }))}
-                          className="shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-gray-900">{a.brinco}</p>
-                          <p className="text-xs text-gray-500">{CAT_LABEL[a.categoria] ?? a.categoria}{a.nome ? ` · ${a.nome}` : ''}</p>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {editingVendaAnimalId && (
-                <p className="text-sm font-semibold text-gray-700">
-                  {vendaAnimais.find(v => v.id === editingVendaAnimalId)?.brinco}
-                </p>
-              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">Peso vivo (kg)</label>
