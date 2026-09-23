@@ -750,10 +750,12 @@ export default function LotesPage() {
     const vencVenda = addDays(lote.data_venda, lote.prazo_recebimento_dias)
 
     const upsertFin = async (categoria: string, payload: Record<string, unknown>) => {
-      const { data: ex } = await supabase.from('financeiro')
-        .select('id').eq('lote_id', lote.id).eq('categoria', categoria).maybeSingle()
-      if (ex) {
-        await supabase.from('financeiro').update(payload).eq('id', ex.id)
+      const { data: rows } = await supabase.from('financeiro')
+        .select('id').eq('lote_id', lote.id).eq('categoria', categoria)
+      if (rows && rows.length > 0) {
+        await supabase.from('financeiro').update(payload).eq('id', rows[0].id)
+        if (rows.length > 1)
+          await supabase.from('financeiro').delete().in('id', rows.slice(1).map((r: { id: string }) => r.id))
       } else {
         await supabase.from('financeiro').insert({ ...payload, fazenda_id: lote.fazenda_id, lote_id: lote.id, categoria })
       }
@@ -761,6 +763,8 @@ export default function LotesPage() {
     const deleteFin = async (categoria: string) => {
       await supabase.from('financeiro').delete().eq('lote_id', lote.id).eq('categoria', categoria)
     }
+    // Remove leftover commercial-lot receivable that may persist after a tipo change
+    await supabase.from('financeiro').delete().eq('lote_id', lote.id).eq('categoria', CAT_VENDA)
 
     if (totVenda > 0) {
       await upsertFin(CAT_VENDA_REBANHO, {
@@ -1048,12 +1052,14 @@ export default function LotesPage() {
     const vencVenda  = addDays(lote.data_venda, lote.prazo_recebimento_dias)
     const faz = lote.fazenda_id
 
-    // helper: upsert by (lote_id, categoria)
+    // helper: upsert by (lote_id, categoria) — handles pre-existing duplicates gracefully
     const upsertFin = async (categoria: string, payload: Record<string, unknown>) => {
-      const { data: ex } = await supabase.from('financeiro')
-        .select('id').eq('lote_id', lote.id).eq('categoria', categoria).maybeSingle()
-      if (ex) {
-        await supabase.from('financeiro').update(payload).eq('id', ex.id)
+      const { data: rows } = await supabase.from('financeiro')
+        .select('id').eq('lote_id', lote.id).eq('categoria', categoria)
+      if (rows && rows.length > 0) {
+        await supabase.from('financeiro').update(payload).eq('id', rows[0].id)
+        if (rows.length > 1)
+          await supabase.from('financeiro').delete().in('id', rows.slice(1).map((r: { id: string }) => r.id))
       } else {
         await supabase.from('financeiro').insert({ ...payload, fazenda_id: faz, lote_id: lote.id, categoria })
       }
@@ -1061,6 +1067,8 @@ export default function LotesPage() {
     const deleteFin = async (categoria: string) => {
       await supabase.from('financeiro').delete().eq('lote_id', lote.id).eq('categoria', categoria)
     }
+    // Remove leftover rebanho receivable that may persist after a tipo change
+    await supabase.from('financeiro').delete().eq('lote_id', lote.id).eq('categoria', CAT_VENDA_REBANHO)
 
     // Conta a pagar — compra
     if (totCusto > 0) {
