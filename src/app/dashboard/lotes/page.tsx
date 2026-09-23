@@ -267,7 +267,7 @@ export default function LotesPage() {
     if (ids.length > 0) {
       const [{ data: fin }, { data: an }, anComRes] = await Promise.all([
         supabase.from('financeiro').select('lote_id, tipo, valor, animal_id').in('lote_id', ids),
-        supabase.from('animais').select('id, lote_id, valor_compra').in('lote_id', ids).eq('status', 'ativo'),
+        supabase.from('animais').select('id, lote_id, valor_compra').in('lote_id', ids).in('status', ['ativo', 'vendido']),
         comIds.length > 0
           ? supabase.from('lote_animais_comerciais').select('lote_id').in('lote_id', comIds)
           : Promise.resolve({ data: [] as { lote_id: string }[] }),
