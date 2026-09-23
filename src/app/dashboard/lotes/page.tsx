@@ -21,6 +21,8 @@ type Lote = {
   observacao: string | null
   total_animais?: number
   custo_total?: number
+  peso_medio?: number
+  preco_medio?: number
   data_compra: string | null
   fornecedor: string | null
   desconto_pct: number | null
@@ -264,13 +266,16 @@ export default function LotesPage() {
     const comIds = data.filter((l: any) => l.tipo === 'comercial').map((l: any) => l.id)
     let custos: Record<string, number> = {}
     let counts: Record<string, number> = {}
+    const pesoMedioMap: Record<string, number> = {}
+    const precoMedioMap: Record<string, number> = {}
     if (ids.length > 0) {
-      const [{ data: fin }, { data: an }, anComRes] = await Promise.all([
+      const [{ data: fin }, { data: an }, anComRes, { data: vendaData }] = await Promise.all([
         supabase.from('financeiro').select('lote_id, tipo, valor, animal_id').in('lote_id', ids),
         supabase.from('animais').select('id, lote_id, valor_compra').in('lote_id', ids).in('status', ['ativo', 'vendido']),
         comIds.length > 0
-          ? supabase.from('lote_animais_comerciais').select('lote_id').in('lote_id', comIds)
-          : Promise.resolve({ data: [] as { lote_id: string }[] }),
+          ? supabase.from('lote_animais_comerciais').select('lote_id, peso_morto_kg, preco_venda_kg').in('lote_id', comIds)
+          : Promise.resolve({ data: [] as { lote_id: string; peso_morto_kg: number | null; preco_venda_kg: number | null }[] }),
+        supabase.from('lote_venda_animais').select('lote_id, peso_morto_kg, preco_venda_kg').in('lote_id', ids),
       ])
       const anCom = anComRes.data
       // Group financeiro by lote
@@ -305,6 +310,32 @@ export default function LotesPage() {
           return s + (a.valor_compra ?? 0)
         }, 0)
       }
+      // Peso médio (kg/cab) e preço médio (R$/kg) — para cards de lotes encerrados
+      const calcStats = (rows: { peso_morto_kg: number | null; preco_venda_kg: number | null }[], loteId: string) => {
+        const withPeso = rows.filter(r => r.peso_morto_kg != null)
+        const withBoth = rows.filter(r => r.peso_morto_kg != null && r.preco_venda_kg != null)
+        if (withPeso.length > 0)
+          pesoMedioMap[loteId] = r2(withPeso.reduce((s, r) => s + r.peso_morto_kg!, 0) / withPeso.length)
+        if (withBoth.length > 0) {
+          const totP = withBoth.reduce((s, r) => s + r.peso_morto_kg!, 0)
+          const totV = withBoth.reduce((s, r) => s + r.peso_morto_kg! * r.preco_venda_kg!, 0)
+          if (totP > 0) precoMedioMap[loteId] = r2(totV / totP)
+        }
+      }
+      // Lotes comerciais (lote_animais_comerciais)
+      const anComByLote: Record<string, { peso_morto_kg: number | null; preco_venda_kg: number | null }[]> = {}
+      for (const a of anCom ?? []) {
+        if (!anComByLote[a.lote_id]) anComByLote[a.lote_id] = []
+        anComByLote[a.lote_id].push(a)
+      }
+      for (const [lid, rows] of Object.entries(anComByLote)) calcStats(rows, lid)
+      // Lotes rebanho (romaneio de venda)
+      const vendaByLote: Record<string, { peso_morto_kg: number | null; preco_venda_kg: number | null }[]> = {}
+      for (const v of vendaData ?? []) {
+        if (!vendaByLote[v.lote_id]) vendaByLote[v.lote_id] = []
+        vendaByLote[v.lote_id].push(v)
+      }
+      for (const [lid, rows] of Object.entries(vendaByLote)) calcStats(rows, lid)
     }
 
     setLotes(
@@ -313,6 +344,7 @@ export default function LotesPage() {
         situacao: l.situacao, data_criacao: l.data_criacao,
         descricao: l.descricao, observacao: l.observacao,
         total_animais: counts[l.id] ?? 0, custo_total: custos[l.id] ?? 0,
+        peso_medio: pesoMedioMap[l.id] ?? undefined, preco_medio: precoMedioMap[l.id] ?? undefined,
         data_compra: l.data_compra, fornecedor: l.fornecedor,
         desconto_pct: l.desconto_pct, preco_compra_kg: l.preco_compra_kg,
         prazo_pagamento_dias: l.prazo_pagamento_dias,
@@ -993,6 +1025,13 @@ export default function LotesPage() {
     await supabase.from('lotes').update({ situacao: nova }).eq('id', selected.id)
     setSelected(prev => prev ? { ...prev, situacao: nova } : prev)
     setLotes(prev => prev.map(l => l.id === selected.id ? { ...l, situacao: nova } : l))
+  }
+
+  async function toggleSituacaoLote(lote: Lote) {
+    const nova = lote.situacao === 'ativo' ? 'encerrado' : 'ativo'
+    await supabase.from('lotes').update({ situacao: nova }).eq('id', lote.id)
+    setLotes(prev => prev.map(l => l.id === lote.id ? { ...l, situacao: nova } : l))
+    if (selected?.id === lote.id) setSelected(prev => prev ? { ...prev, situacao: nova } : prev)
   }
 
   async function excluirLote() {
@@ -2419,8 +2458,9 @@ export default function LotesPage() {
       {!loading && lotesVisiveis.length > 0 && (
         <div className="space-y-3">
           {lotesVisiveis.map(l => (
-            <button key={l.id} onClick={() => openDetail(l)}
-              className="w-full text-left bg-white rounded-2xl border border-gray-200 p-4 hover:border-green-300 hover:shadow-sm transition-all active:scale-[0.99]">
+            <div key={l.id} onClick={() => openDetail(l)}
+              role="button" tabIndex={0} onKeyDown={e => e.key === 'Enter' && openDetail(l)}
+              className="w-full text-left bg-white rounded-2xl border border-gray-200 p-4 hover:border-green-300 hover:shadow-sm transition-all active:scale-[0.99] cursor-pointer">
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-900">{l.nome}</p>
@@ -2428,15 +2468,42 @@ export default function LotesPage() {
                 </div>
                 {l.tipo && <TipoChip tipo={l.tipo} />}
               </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                <span className="text-gray-600">
-                  {(l.total_animais ?? 0) > 0 ? `${l.total_animais} cab.` : '— animais'}
-                </span>
-                {(l.custo_total ?? 0) > 0 && (
-                  <span className="text-red-500 font-medium">custo: {fmt(l.custo_total!)}</span>
-                )}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                  <span className="text-gray-600">
+                    {(l.total_animais ?? 0) > 0 ? `${l.total_animais} cab.` : '— animais'}
+                  </span>
+                  {l.situacao === 'encerrado' ? (
+                    <>
+                      {l.peso_medio != null && (
+                        <span className="text-gray-500">
+                          {l.peso_medio.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} kg/cab
+                        </span>
+                      )}
+                      {l.preco_medio != null && (
+                        <span className="text-gray-500">
+                          R$ {l.preco_medio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/kg
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    (l.custo_total ?? 0) > 0 && (
+                      <span className="text-red-500 font-medium">custo: {fmt(l.custo_total!)}</span>
+                    )
+                  )}
+                </div>
+                <button
+                  onClick={e => { e.stopPropagation(); toggleSituacaoLote(l) }}
+                  className={`shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-colors ${
+                    l.situacao === 'ativo'
+                      ? 'border-gray-200 text-gray-500 hover:bg-gray-50'
+                      : 'border-green-200 text-green-700 hover:bg-green-50'
+                  }`}
+                >
+                  {l.situacao === 'ativo' ? 'Encerrar' : 'Reabrir'}
+                </button>
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}
