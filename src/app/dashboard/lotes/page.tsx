@@ -1344,6 +1344,12 @@ export default function LotesPage() {
                         <span className="text-sm font-semibold text-green-700">{fmt(totVenda)}</span>
                       </div>
                     )}
+                    {totVenda > 0 && animaisCom.length > 0 && (
+                      <div className="flex justify-between items-baseline gap-3">
+                        <span className="text-sm text-gray-500 shrink-0">Preço/cab</span>
+                        <span className="text-sm font-semibold text-green-700">{fmt(r2(totVenda / animaisCom.length))}</span>
+                      </div>
+                    )}
                     {(totCusto > 0 || totVenda > 0) && (
                       <div className="flex justify-between items-baseline gap-3">
                         <span className="text-sm text-gray-500 shrink-0">Lucro</span>
@@ -1382,6 +1388,12 @@ export default function LotesPage() {
                         <span className="text-sm font-semibold text-green-700">
                           {vendaAnimais.length} cab. · {fmt(totVendaRebanho)}
                         </span>
+                      </div>
+                    )}
+                    {vendaAnimais.length > 0 && totVendaRebanho > 0 && (
+                      <div className="flex justify-between items-baseline gap-3">
+                        <span className="text-sm text-gray-500 shrink-0">Preço/cab</span>
+                        <span className="text-sm font-semibold text-green-700">{fmt(r2(totVendaRebanho / vendaAnimais.length))}</span>
                       </div>
                     )}
                   </>
@@ -2483,6 +2495,11 @@ export default function LotesPage() {
                       {l.preco_medio != null && (
                         <span className="text-gray-500">
                           R$ {l.preco_medio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/kg
+                        </span>
+                      )}
+                      {l.peso_medio != null && l.preco_medio != null && (
+                        <span className="text-gray-700 font-semibold">
+                          {fmt(r2(l.peso_medio * l.preco_medio))}/cab
                         </span>
                       )}
                     </>
