@@ -250,16 +250,13 @@ export default function LotesPage() {
     const { data: faz } = await supabase.from('fazendas').select('id, nome').order('nome')
     setFazendas(faz ?? [])
 
-    let q = supabase
+    const { data } = await supabase
       .from('lotes')
       .select(`id, fazenda_id, nome, tipo, situacao, data_criacao, descricao, observacao,
         data_compra, fornecedor, desconto_pct, preco_compra_kg, prazo_pagamento_dias,
         prazo_recebimento_dias, data_venda, comprador, pago, data_pago_efetivo,
         recebido, data_recebido_efetivo`)
       .order('nome')
-    if (situFiltro) q = (q as any).eq('situacao', situFiltro)
-
-    const { data } = await q
     if (!data) { setLoading(false); return }
 
     const ids = data.map((l: any) => l.id)
@@ -980,6 +977,14 @@ export default function LotesPage() {
     if (w) { w.document.write(html); w.document.close() }
   }
 
+  async function toggleSituacao() {
+    if (!selected) return
+    const nova = selected.situacao === 'ativo' ? 'encerrado' : 'ativo'
+    await supabase.from('lotes').update({ situacao: nova }).eq('id', selected.id)
+    setSelected(prev => prev ? { ...prev, situacao: nova } : prev)
+    setLotes(prev => prev.map(l => l.id === selected.id ? { ...l, situacao: nova } : l))
+  }
+
   async function excluirLote() {
     if (!selected) return
     if (!confirm(`Excluir "${selected.nome}"? Os animais do rebanho ficam sem lote e os dados financeiros vinculados serão removidos.`)) return
@@ -1338,7 +1343,17 @@ export default function LotesPage() {
                   </div>
                 )}
               </div>
-              <div className="mt-3 pt-3 border-t border-gray-100">
+              <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+                <button
+                  onClick={toggleSituacao}
+                  className={`text-xs font-semibold transition-colors ${
+                    selected.situacao === 'ativo'
+                      ? 'text-gray-400 hover:text-gray-700'
+                      : 'text-green-600 hover:text-green-700'
+                  }`}
+                >
+                  {selected.situacao === 'ativo' ? 'Encerrar lote' : 'Reabrir lote'}
+                </button>
                 <button onClick={excluirLote} className="text-xs text-red-400 hover:text-red-600 transition-colors">
                   Excluir lote
                 </button>
@@ -2308,6 +2323,7 @@ export default function LotesPage() {
   // ── LISTA ──
   const ativos     = lotes.filter(l => l.situacao === 'ativo').length
   const encerrados = lotes.filter(l => l.situacao !== 'ativo').length
+  const lotesVisiveis = situFiltro ? lotes.filter(l => l.situacao === situFiltro) : lotes
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-4 pb-24">
@@ -2337,16 +2353,16 @@ export default function LotesPage() {
 
       {loading && <p className="text-center text-gray-400 py-12">Carregando...</p>}
 
-      {!loading && lotes.length === 0 && (
+      {!loading && lotesVisiveis.length === 0 && (
         <div className="text-center py-16 text-gray-400">
           <p className="text-base font-medium mb-1">Nenhum lote encontrado</p>
-          <p className="text-sm">Crie o primeiro lote para organizar o rebanho.</p>
+          <p className="text-sm">{lotes.length === 0 ? 'Crie o primeiro lote para organizar o rebanho.' : 'Nenhum lote nesta situação.'}</p>
         </div>
       )}
 
-      {!loading && lotes.length > 0 && (
+      {!loading && lotesVisiveis.length > 0 && (
         <div className="space-y-3">
-          {lotes.map(l => (
+          {lotesVisiveis.map(l => (
             <button key={l.id} onClick={() => openDetail(l)}
               className="w-full text-left bg-white rounded-2xl border border-gray-200 p-4 hover:border-green-300 hover:shadow-sm transition-all active:scale-[0.99]">
               <div className="flex items-start justify-between gap-2 mb-2">
