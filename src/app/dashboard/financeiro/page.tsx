@@ -107,7 +107,10 @@ export default function FinanceiroPage() {
       aReceber:  (allKpi ?? []).filter((m: any) => m.status === 'pendente' && m.tipo === 'entrada').reduce((s: number, m: any) => s + Number(m.valor), 0),
     })
 
-    let q = supabase.from('financeiro').select('*').order('data', { ascending: false }).limit(200)
+    let q = supabase.from('financeiro').select('*')
+      .order('data_vencimento', { ascending: true, nullsFirst: false })
+      .order('data', { ascending: false })
+      .limit(200)
     if (filter === 'entrada')   q = q.eq('tipo', 'entrada').neq('status', 'pendente')
     if (filter === 'saida')     q = q.eq('tipo', 'saida').neq('status', 'pendente')
     if (filter === 'a_pagar')   q = q.eq('tipo', 'saida').eq('status', 'pendente')
