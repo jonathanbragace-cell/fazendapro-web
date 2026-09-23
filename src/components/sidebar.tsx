@@ -13,18 +13,18 @@ import { cn } from '@/lib/utils'
 type Fazenda = { id: string; nome: string }
 
 const ALL_NAV = [
-  { href: '/dashboard',            label: 'Início',     icon: LayoutDashboard, cargos: ['admin','gerente','vaqueiro'] },
-  { href: '/dashboard/rebanho',    label: 'Rebanho',    icon: GitFork,          cargos: ['admin','gerente','vaqueiro'] },
-{ href: '/dashboard/irrigacao',  label: 'Irrigação',  icon: Droplets,         cargos: ['admin','gerente'] },
-  { href: '/dashboard/pesagem',    label: 'Pesagem',    icon: Scale,            cargos: ['admin','gerente','vaqueiro'] },
-  { href: '/dashboard/reproducao', label: 'Reprodução', icon: Heart,            cargos: ['admin','gerente'] },
-  { href: '/dashboard/sanitario',  label: 'Sanitário',  icon: ShieldPlus,       cargos: ['admin','gerente','vaqueiro'] },
-  { href: '/dashboard/lotes',      label: 'Lotes',      icon: Tag,              cargos: ['admin','gerente'] },
-  { href: '/dashboard/financeiro', label: 'Financeiro', icon: Wallet,           cargos: ['admin','gerente'] },
-  { href: '/dashboard/estoque',    label: 'Estoque',    icon: Package,          cargos: ['admin','gerente'] },
-  { href: '/dashboard/relatorios', label: 'Relatórios', icon: BarChart3,        cargos: ['admin','gerente'] },
-  { href: '/dashboard/usuarios',   label: 'Usuários',   icon: Users,            cargos: ['admin'] },
-  { href: '/dashboard/fazendas',   label: 'Fazendas',   icon: MapPin,           cargos: ['admin'] },
+  { href: '/dashboard',             label: 'Início',      icon: LayoutDashboard, cargos: ['admin','gerente','vaqueiro'] },
+  { href: '/dashboard/rebanho',     label: 'Rebanho',     icon: GitFork,          cargos: ['admin','gerente','vaqueiro'] },
+  { href: '/dashboard/reproducao',  label: 'Reprodução',  icon: Heart,            cargos: ['admin','gerente'] },
+  { href: '/dashboard/sanitario',   label: 'Sanitário',   icon: ShieldPlus,       cargos: ['admin','gerente','vaqueiro'] },
+  { href: '/dashboard/pesagem',     label: 'Pesagem',     icon: Scale,            cargos: ['admin','gerente','vaqueiro'] },
+  { href: '/dashboard/lotes',       label: 'Lotes',       icon: Tag,              cargos: ['admin','gerente'] },
+  { href: '/dashboard/financeiro',  label: 'Financeiro',  icon: Wallet,           cargos: ['admin','gerente'] },
+  { href: '/dashboard/estoque',     label: 'Estoque',     icon: Package,          cargos: ['admin','gerente'] },
+  { href: '/dashboard/relatorios',  label: 'Relatórios',  icon: BarChart3,        cargos: ['admin','gerente'] },
+  { href: '/dashboard/irrigacao',   label: 'Irrigação',   icon: Droplets,         cargos: ['admin','gerente'] },
+  { href: '/dashboard/fazendas',    label: 'Fazendas',    icon: MapPin,           cargos: ['admin'] },
+  { href: '/dashboard/usuarios',    label: 'Usuários',    icon: Users,            cargos: ['admin'] },
 ]
 
 const BOTTOM_NAV = [
@@ -59,14 +59,14 @@ function VersionBadge({ light }: { light?: boolean }) {
     : '—'
   if (light) {
     return (
-      <div className="mt-2 px-3 py-1.5 rounded-lg bg-gray-100">
+      <div className="mt-1.5 px-3 py-1 rounded-lg bg-gray-100">
         <p className="text-[10px] font-mono text-gray-500 leading-tight">v {shortSha}</p>
         <p className="text-[10px] text-gray-400 leading-tight">{buildLabel}</p>
       </div>
     )
   }
   return (
-    <div className="mt-2 px-3 py-1.5 rounded-lg bg-green-950/60">
+    <div className="mt-1.5 px-3 py-1 rounded-lg bg-green-950/60">
       <p className="text-[10px] font-mono text-green-500 leading-tight">v {shortSha}</p>
       <p className="text-[10px] text-green-600 leading-tight">{buildLabel}</p>
     </div>
@@ -107,7 +107,6 @@ export function Sidebar() {
     init()
   }, [])
 
-  // Close picker when clicking outside
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
@@ -137,27 +136,22 @@ export function Sidebar() {
 
   const NavContent = () => (
     <>
-      {/* Logo */}
-      <div className="px-4 py-5 border-b border-green-800">
-        <div className="flex items-center gap-2">
-          <img src="/touro.png" alt="" className="w-10 h-10 rounded-lg object-cover object-center shrink-0" />
-          <div>
-            <p className="font-bold text-white text-sm">FazendaPro</p>
-            <p className="text-green-300 text-xs">Gestão Pecuária</p>
-          </div>
-        </div>
+      {/* Header */}
+      <div className="px-4 py-3 flex items-center gap-2.5 border-b border-green-800/60 shrink-0">
+        <img src="/touro.png" alt="" className="w-7 h-7 rounded-md object-cover object-center shrink-0" />
+        <p className="font-bold text-white text-[13px]">FazendaPro</p>
       </div>
 
       {/* Farm selector */}
       {fazendas.length > 0 && (
-        <div className="px-3 py-2.5 border-b border-green-800" ref={pickerRef}>
+        <div className="px-3 py-2 border-b border-green-800/60 shrink-0" ref={pickerRef}>
           <button
             onClick={() => setShowFazendaPicker(v => !v)}
-            className="w-full flex items-center justify-between gap-2 bg-green-800 hover:bg-green-700 transition-colors rounded-lg px-3 py-2"
+            className="w-full flex items-center justify-between gap-2 bg-green-800/70 hover:bg-green-700/70 transition-colors rounded-lg px-3 py-1.5"
           >
-            <span className="text-sm font-semibold text-white truncate">{displayFazenda}</span>
+            <span className="text-[12px] font-semibold text-white truncate">{displayFazenda}</span>
             <ChevronDown
-              size={14}
+              size={12}
               className={cn('shrink-0 text-green-300 transition-transform', showFazendaPicker && 'rotate-180')}
             />
           </button>
@@ -195,25 +189,31 @@ export function Sidebar() {
       )}
 
       {/* Navigation */}
-      <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-2 py-1.5 overflow-y-auto">
         {navItems.map((item) => {
           const active = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href))
           return (
             <Link key={item.href} href={item.href}
-              className={cn('flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                active ? 'bg-green-600 text-white' : 'text-green-100 hover:bg-green-800 hover:text-white'
+              className={cn(
+                'flex items-center gap-[10px] px-3 py-[7px] rounded-lg text-[13px] font-medium transition-colors',
+                active
+                  ? 'bg-green-700/80 text-white'
+                  : 'text-green-100/75 hover:bg-green-800 hover:text-white'
               )}>
-              <item.icon size={18} />
+              <item.icon
+                size={15}
+                className={cn('shrink-0 transition-opacity', active ? 'opacity-100' : 'opacity-50')}
+              />
               {item.label}
             </Link>
           )
         })}
       </nav>
 
-      <div className="px-2 py-4 border-t border-green-800">
+      <div className="px-2 py-2 border-t border-green-800/60 shrink-0">
         <button onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2 w-full rounded-lg text-sm font-medium text-green-100 hover:bg-green-800 hover:text-white transition-colors">
-          <LogOut size={18} />
+          className="flex items-center gap-[10px] px-3 py-[7px] w-full rounded-lg text-[13px] font-medium text-green-100/75 hover:bg-green-800 hover:text-white transition-colors">
+          <LogOut size={15} className="shrink-0 opacity-50" />
           Sair
         </button>
         <VersionBadge />
@@ -224,7 +224,7 @@ export function Sidebar() {
   return (
     <>
       {/* ── DESKTOP sidebar ── */}
-      <aside className="hidden md:flex flex-col w-56 bg-green-900 h-screen sticky top-0 shrink-0 relative">
+      <aside className="hidden md:flex flex-col w-52 bg-green-900 h-screen sticky top-0 shrink-0 relative">
         <NavContent />
       </aside>
 
@@ -249,7 +249,6 @@ export function Sidebar() {
             </button>
           </div>
 
-          {/* Farm selector mobile — compact dropdown */}
           {fazendas.length > 0 && (
             <div className="px-3 py-3 border-b border-gray-100 shrink-0">
               <button

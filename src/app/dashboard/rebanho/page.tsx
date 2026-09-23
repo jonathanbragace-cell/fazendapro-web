@@ -85,11 +85,6 @@ export default function RebanhoPage() {
   const [perdaCount, setPerdaCount] = useState(0)
   const [atencaoCount, setAtencaoCount] = useState(0)
   const [novaRaca, setNovaRaca] = useState('')
-  const [loteFilter, setLoteFilter] = useState<string>('')
-  const [openAddLote, setOpenAddLote] = useState(false)
-  const [availAnimals, setAvailAnimals] = useState<Animal[]>([])
-  const [addIds, setAddIds] = useState<Set<string>>(new Set())
-  const [savingAdd, setSavingAdd] = useState(false)
   const [openParto, setOpenParto] = useState(false)
   const [partoMae, setPartoMae] = useState<Animal | null>(null)
   const [formParto, setFormParto] = useState({ brinco: '', sexo: 'femea', raca: '', data_nascimento: '' })
@@ -197,11 +192,6 @@ export default function RebanhoPage() {
       if (sexoFilter && (catFilter === 'bezerro' || catFilter === 'garrote')) q = q.eq('sexo', sexoFilter)
     }
     if (search) q = q.ilike('brinco', `%${search}%`)
-    if (loteFilter === 'sem_lote') {
-      q = q.is('lote_id', null)
-    } else if (loteFilter) {
-      q = q.eq('lote_id', loteFilter)
-    }
     const { data: anim } = await q
     const sorted = (anim ?? []).sort((a, b) => {
       const aN = /^\d/.test(a.brinco); const bN = /^\d/.test(b.brinco)
@@ -214,7 +204,7 @@ export default function RebanhoPage() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [catFilter, reproFilter, sexoFilter, loteFilter])
+  useEffect(() => { load() }, [catFilter, reproFilter, sexoFilter])
   useEffect(() => {
     const t = setTimeout(() => load(), 350)
     return () => clearTimeout(t)
@@ -535,27 +525,6 @@ export default function RebanhoPage() {
     load()
   }
 
-  async function openAddToLote() {
-    const { data } = await supabase.from('animais').select('*').eq('status', 'ativo').is('lote_id', null).order('brinco')
-    const sorted = (data ?? []).sort((a, b) => {
-      const aN = /^\d/.test(a.brinco); const bN = /^\d/.test(b.brinco)
-      if (aN !== bN) return aN ? -1 : 1
-      return (parseInt(a.brinco) || 0) - (parseInt(b.brinco) || 0)
-    })
-    setAvailAnimals(sorted)
-    setAddIds(new Set())
-    setOpenAddLote(true)
-  }
-
-  async function handleAddToLote() {
-    if (addIds.size === 0 || !loteFilter || loteFilter === 'sem_lote') return
-    setSavingAdd(true)
-    await supabase.from('animais').update({ lote_id: loteFilter }).in('id', [...addIds])
-    setSavingAdd(false)
-    setOpenAddLote(false)
-    load()
-  }
-
   async function handleRemoveFromLote(animalId: string) {
     await supabase.from('animais').update({ lote_id: null }).eq('id', animalId)
     load()
@@ -627,55 +596,6 @@ export default function RebanhoPage() {
         </button>
       </div>
 
-      {/* Filtro por lote */}
-      {lotes.length > 0 && (
-        <div className="flex gap-2 mb-2 flex-wrap">
-          <button onClick={() => setLoteFilter('')}
-            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${loteFilter === '' ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-500 border-gray-200'}`}>
-            Todo lote
-          </button>
-          <button onClick={() => setLoteFilter('sem_lote')}
-            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${loteFilter === 'sem_lote' ? 'bg-gray-600 text-white border-gray-600' : 'bg-white text-gray-500 border-gray-200'}`}>
-            Sem lote
-          </button>
-          {lotes.map(l => (
-            <button key={l.id} onClick={() => setLoteFilter(l.id)}
-              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${loteFilter === l.id ? 'bg-green-700 text-white border-green-700' : 'bg-white text-gray-500 border-gray-200'}`}>
-              {l.nome}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Detalhe do lote selecionado */}
-      {loteFilter && loteFilter !== 'sem_lote' && (() => {
-        const lot = lotes.find(l => l.id === loteFilter)
-        if (!lot) return null
-        const semValor = animais.filter(a => !a.valor_compra).length
-        const totalValor = animais.reduce((s, a) => s + (a.valor_compra ?? 0), 0)
-        return (
-          <div className="bg-white rounded-xl border border-green-200 p-3 mb-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="font-semibold text-gray-900 text-sm">{lot.nome}</p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {animais.length} animal(is){totalValor > 0 ? ` · ${fmtMoney(totalValor)}` : ''}
-                </p>
-              </div>
-              <button onClick={openAddToLote}
-                className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-300 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors shrink-0">
-                <Plus size={12} /> Adicionar
-              </button>
-            </div>
-            {semValor > 0 && (
-              <div className="mt-2 flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-lg">
-                <AlertTriangle size={13} className="text-amber-500 shrink-0" />
-                <p className="text-xs text-amber-700">{semValor} animal(is) sem valor de compra informado</p>
-              </div>
-            )}
-          </div>
-        )
-      })()}
 
       {/* Barra de ações em massa */}
       {selected.size > 0 && (
@@ -1105,49 +1025,6 @@ export default function RebanhoPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal: Adicionar animais ao lote */}
-      <Dialog open={openAddLote} onOpenChange={setOpenAddLote}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto w-full max-w-md">
-          <DialogHeader>
-            <DialogTitle>Adicionar ao lote — {lotes.find(l => l.id === loteFilter)?.nome}</DialogTitle>
-          </DialogHeader>
-          <div className="pt-1">
-            {availAnimals.length === 0 ? (
-              <p className="text-sm text-gray-400 py-6 text-center">Todos os animais já estão em lotes.</p>
-            ) : (
-              <>
-                <p className="text-xs text-gray-500 mb-2">{availAnimals.length} animal(is) sem lote disponível — selecione os que deseja adicionar</p>
-                <div className="space-y-0 border border-gray-200 rounded-xl overflow-hidden mb-3">
-                  {availAnimals.map((a, i) => (
-                    <label key={a.id} className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
-                      <input type="checkbox" checked={addIds.has(a.id)}
-                        onChange={e => setAddIds(prev => {
-                          const next = new Set(prev)
-                          e.target.checked ? next.add(a.id) : next.delete(a.id)
-                          return next
-                        })}
-                        className="rounded border-gray-300 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-900">{a.brinco}</p>
-                        <p className="text-xs text-gray-500">{LABELS[a.categoria] ?? a.categoria} · {a.raca}</p>
-                      </div>
-                      {a.valor_compra && (
-                        <p className="text-xs text-gray-500 shrink-0">{fmtMoney(a.valor_compra)}</p>
-                      )}
-                    </label>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" onClick={() => setOpenAddLote(false)}>Cancelar</Button>
-                  <Button className="flex-1 bg-green-700 hover:bg-green-800" onClick={handleAddToLote} disabled={savingAdd || addIds.size === 0}>
-                    {savingAdd ? 'Adicionando...' : `Adicionar${addIds.size > 0 ? ` ${addIds.size}` : ''}`}
-                  </Button>
-                </div>
-              </>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Modal registro de parto */}
       <Dialog open={openParto} onOpenChange={setOpenParto}>
