@@ -37,6 +37,7 @@ type Lote = {
 type Animal = {
   id: string; brinco: string; nome: string | null
   categoria: string; sexo: string; raca: string; valor_compra?: number | null
+  status: string
 }
 type LoteAnimalCom = {
   id: string
@@ -335,8 +336,8 @@ export default function LotesPage() {
     window.scrollTo(0, 0)
 
     const [{ data: an }, { data: fin }] = await Promise.all([
-      supabase.from('animais').select('id, brinco, nome, categoria, sexo, raca, valor_compra')
-        .eq('lote_id', lote.id).eq('status', 'ativo').order('brinco'),
+      supabase.from('animais').select('id, brinco, nome, categoria, sexo, raca, valor_compra, status')
+        .eq('lote_id', lote.id).in('status', ['ativo', 'vendido']).order('brinco'),
       supabase.from('financeiro').select('id, descricao, tipo, valor, data, categoria, animal_id')
         .eq('lote_id', lote.id).order('data', { ascending: false }),
     ])
@@ -359,9 +360,10 @@ export default function LotesPage() {
       // sync inicial: garante registros no Financeiro ao abrir o lote
       syncLoteFinanceiro(lote, acList, despList)
     } else {
-      // Lote de rebanho: carrega romaneio de venda
+      // Lote de rebanho: carrega romaneio de venda e sincroniza financeiro
       const vaList = await loadVendaAnimaisInner(lote.id)
       setVendaAnimais(vaList)
+      if (vaList.length > 0) syncVendaFinanceiro(lote, vaList)
     }
 
     setLoadingDetail(false)
@@ -594,14 +596,14 @@ export default function LotesPage() {
 
   async function refreshAnimais(loteId: string) {
     const { data } = await supabase
-      .from('animais').select('id, brinco, nome, categoria, sexo, raca')
-      .eq('lote_id', loteId).eq('status', 'ativo').order('brinco')
+      .from('animais').select('id, brinco, nome, categoria, sexo, raca, status')
+      .eq('lote_id', loteId).in('status', ['ativo', 'vendido']).order('brinco')
     setAnimais(data ?? [])
   }
 
   async function loadAvailAnimais(search: string, cat: string) {
     setLoadingAvail(true)
-    let q = supabase.from('animais').select('id, brinco, nome, categoria, sexo, raca')
+    let q = supabase.from('animais').select('id, brinco, nome, categoria, sexo, raca, status')
       .eq('status', 'ativo').order('brinco').limit(60)
     if (search) q = q.ilike('brinco', `%${search}%`)
     if (cat) q = q.eq('categoria', cat)
@@ -1309,7 +1311,10 @@ export default function LotesPage() {
                     <div className="flex justify-between items-baseline gap-3">
                       <span className="text-sm text-gray-500 shrink-0">Animais no lote</span>
                       <span className="text-sm font-semibold text-gray-900">
-                        {animais.length > 0 ? `${animais.length} cab.` : '—'}
+                        {animais.length > 0 ? (() => {
+                          const vendidosCount = animais.filter(a => a.status === 'vendido').length
+                          return `${animais.length} cab.${vendidosCount > 0 ? ` (${vendidosCount} vendido${vendidosCount !== 1 ? 's' : ''})` : ''}`
+                        })() : '—'}
                       </span>
                     </div>
                     <div className="flex justify-between items-baseline gap-3">
@@ -1395,6 +1400,22 @@ export default function LotesPage() {
                           <span className="text-sm font-medium text-gray-900 text-right">{value}</span>
                         </div>
                       ))}
+                      {animaisCom.length > 0 && (() => {
+                        const missing: string[] = []
+                        if (!selected.fornecedor) missing.push('Fornecedor')
+                        if (selected.prazo_pagamento_dias == null) missing.push('Prazo de pagamento')
+                        if (totVenda > 0) {
+                          if (!selected.comprador) missing.push('Comprador')
+                          if (selected.prazo_recebimento_dias == null) missing.push('Prazo de recebimento')
+                        }
+                        if (missing.length === 0) return null
+                        return (
+                          <div className="mt-2 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2">
+                            <p className="text-xs font-semibold text-orange-700 mb-0.5">Contas incompletas</p>
+                            <p className="text-xs text-orange-600">Preencha para gerar corretamente: {missing.join(', ')}</p>
+                          </div>
+                        )
+                      })()}
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -1672,11 +1693,19 @@ export default function LotesPage() {
                 {animais.map((a, i) => {
                   const va = vendaAnimais.find(v => v.animal_id === a.id)
                   const calc = va ? computeAnimalVenda(va) : null
+                  const isVendido = a.status === 'vendido'
                   return (
                     <div key={a.id} className={`py-2.5 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
                       <div className="flex items-center gap-2">
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-sm text-gray-900">{a.brinco}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-semibold text-sm text-gray-900">{a.brinco}</p>
+                            {isVendido && (
+                              <span className="text-[10px] font-semibold text-orange-600 bg-orange-50 border border-orange-200 rounded-full px-1.5 py-0.5 leading-none">
+                                Vendido
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-gray-400">
                             {CAT_LABEL[a.categoria] ?? a.categoria} · {a.sexo === 'femea' ? 'Fêmea' : 'Macho'}
                           </p>
@@ -1690,10 +1719,12 @@ export default function LotesPage() {
                           className="p-1.5 text-gray-300 hover:text-blue-500 transition-colors shrink-0">
                           <Pencil size={13} />
                         </button>
-                        <button onClick={() => handleRemoverAnimal(a.id)} title="Remover do lote"
-                          className="p-1.5 text-gray-300 hover:text-red-400 transition-colors shrink-0">
-                          <X size={13} />
-                        </button>
+                        {!isVendido && (
+                          <button onClick={() => handleRemoverAnimal(a.id)} title="Remover do lote"
+                            className="p-1.5 text-gray-300 hover:text-red-400 transition-colors shrink-0">
+                            <X size={13} />
+                          </button>
+                        )}
                       </div>
                       {va && (
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
@@ -1782,6 +1813,19 @@ export default function LotesPage() {
                           <span className="text-sm font-medium text-gray-900 text-right">{value}</span>
                         </div>
                       ))}
+                      {vendaAnimais.length > 0 && (() => {
+                        const missing: string[] = []
+                        if (!selected.data_venda) missing.push('Data de venda')
+                        if (!selected.comprador) missing.push('Comprador')
+                        if (selected.prazo_recebimento_dias == null) missing.push('Prazo de recebimento')
+                        if (missing.length === 0) return null
+                        return (
+                          <div className="mt-2 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2">
+                            <p className="text-xs font-semibold text-orange-700 mb-0.5">Conta a receber incompleta</p>
+                            <p className="text-xs text-orange-600">Preencha: {missing.join(', ')}</p>
+                          </div>
+                        )
+                      })()}
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -1818,7 +1862,7 @@ export default function LotesPage() {
                     <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Status financeiro</p>
                     <div className="flex flex-col gap-3">
                       {/* Botão concluir venda */}
-                      {animais.some(a => vendaAnimais.some(v => v.animal_id === a.id)) && (
+                      {animais.some(a => a.status !== 'vendido' && vendaAnimais.some(v => v.animal_id === a.id)) && (
                         <button
                           onClick={concluirVenda}
                           disabled={concludingVenda}
