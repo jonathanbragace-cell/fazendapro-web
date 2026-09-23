@@ -1363,10 +1363,10 @@ export default function LotesPage() {
               <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
                 <button
                   onClick={toggleSituacao}
-                  className={`text-xs font-semibold transition-colors ${
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
                     selected.situacao === 'ativo'
-                      ? 'text-gray-400 hover:text-gray-700'
-                      : 'text-green-600 hover:text-green-700'
+                      ? 'border-gray-300 text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                      : 'border-green-300 text-green-700 hover:bg-green-50'
                   }`}
                 >
                   {selected.situacao === 'ativo' ? 'Encerrar lote' : 'Reabrir lote'}
