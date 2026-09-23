@@ -49,6 +49,17 @@ type LoteAnimalCom = {
   preco_venda_kg: number | null
   tipo_compra: 'vivo' | 'morto'
 }
+type LoteVendaAnimal = {
+  id: string
+  lote_id: string
+  animal_id: string
+  brinco: string
+  nome: string | null
+  peso_vivo_kg: number | null
+  desconto_pct: number | null
+  peso_morto_kg: number | null
+  preco_venda_kg: number | null
+}
 type LoteDespesa = {
   id: string
   lote_id: string
@@ -122,6 +133,17 @@ function computeAnimalCom(
   return { pesoDesc, custo, venda, lucro }
 }
 
+function computeAnimalVenda(
+  a: Pick<LoteVendaAnimal, 'desconto_pct' | 'peso_vivo_kg' | 'peso_morto_kg' | 'preco_venda_kg'>
+) {
+  const desc = a.desconto_pct ?? 0
+  const pesoDesc = a.peso_vivo_kg != null ? r2(a.peso_vivo_kg * (1 - desc / 100)) : null
+  const basePeso = a.peso_morto_kg ?? pesoDesc
+  const venda = basePeso != null && a.preco_venda_kg != null
+    ? r2(basePeso * a.preco_venda_kg) : null
+  return { pesoDesc, venda }
+}
+
 const EMPTY_LOTE = {
   nome: '', tipo: 'recria', situacao: 'ativo', fazenda_id: '', data_criacao: hoje(),
 }
@@ -136,9 +158,15 @@ const EMPTY_HEADER_COM = {
 }
 const EMPTY_DESPESA = { tipo: 'frete', descricao: '', valor: '' }
 
-const CAT_COMPRA   = 'Compra — lote comercial'
-const CAT_VENDA    = 'Venda — lote comercial'
-const CAT_DESPESAS = 'Despesas — lote comercial'
+const CAT_COMPRA        = 'Compra — lote comercial'
+const CAT_VENDA         = 'Venda — lote comercial'
+const CAT_DESPESAS      = 'Despesas — lote comercial'
+const CAT_VENDA_REBANHO = 'Venda — rebanho'
+
+const EMPTY_VENDA_ANIMAL = {
+  animal_id: '', peso_vivo_kg: '', desconto_pct: '', peso_morto_kg: '', preco_venda_kg: '',
+}
+const EMPTY_VENDA_HEADER = { data_venda: '', comprador: '', prazo_recebimento_dias: '' }
 
 function TipoChip({ tipo }: { tipo: string | null }) {
   if (!tipo) return <span className="text-gray-400">—</span>
@@ -206,6 +234,16 @@ export default function LotesPage() {
   const [avulsoFornecedor, setAvulsoFornecedor] = useState('')
   const [avulsoPeso, setAvulsoPeso] = useState('')
   const [avulsoObs, setAvulsoObs] = useState('')
+
+  const [vendaAnimais, setVendaAnimais] = useState<LoteVendaAnimal[]>([])
+  const [openVendaAnimal, setOpenVendaAnimal] = useState(false)
+  const [vendaAnimalForm, setVendaAnimalForm] = useState({ ...EMPTY_VENDA_ANIMAL })
+  const [editingVendaAnimalId, setEditingVendaAnimalId] = useState<string | null>(null)
+  const [savingVendaAnimal, setSavingVendaAnimal] = useState(false)
+  const [editingVendaHeader, setEditingVendaHeader] = useState(false)
+  const [vendaHeaderForm, setVendaHeaderForm] = useState({ ...EMPTY_VENDA_HEADER })
+  const [savingVendaHeader, setSavingVendaHeader] = useState(false)
+  const [concludingVenda, setConcludingVenda] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -290,7 +328,9 @@ export default function LotesPage() {
     setSelected(lote)
     setAnimaisCom([])
     setDespesas([])
+    setVendaAnimais([])
     setEditingHeader(false)
+    setEditingVendaHeader(false)
     window.scrollTo(0, 0)
 
     const [{ data: an }, { data: fin }] = await Promise.all([
@@ -317,6 +357,10 @@ export default function LotesPage() {
       setDespesas(despList)
       // sync inicial: garante registros no Financeiro ao abrir o lote
       syncLoteFinanceiro(lote, acList, despList)
+    } else {
+      // Lote de rebanho: carrega romaneio de venda
+      const vaList = await loadVendaAnimaisInner(lote.id)
+      setVendaAnimais(vaList)
     }
 
     setLoadingDetail(false)
@@ -540,9 +584,10 @@ export default function LotesPage() {
     const newVal = !selected.recebido
     const update = { recebido: newVal, data_recebido_efetivo: newVal ? hoje() : null }
     await supabase.from('lotes').update(update).eq('id', selected.id)
+    const cat = selected.tipo === 'comercial' ? CAT_VENDA : CAT_VENDA_REBANHO
     await supabase.from('financeiro')
       .update({ status: newVal ? 'recebido' : 'pendente', data: newVal ? hoje() : (selected.data_venda ?? hoje()) })
-      .eq('lote_id', selected.id).eq('categoria', CAT_VENDA)
+      .eq('lote_id', selected.id).eq('categoria', cat)
     setSelected(prev => prev ? { ...prev, ...update } : prev)
   }
 
@@ -670,6 +715,258 @@ export default function LotesPage() {
     await supabase.from('animais').update({ lote_id: null } as any).eq('id', animalId)
     setAnimais(prev => prev.filter(a => a.id !== animalId))
     load()
+  }
+
+  async function loadVendaAnimaisInner(loteId: string): Promise<LoteVendaAnimal[]> {
+    const { data } = await supabase
+      .from('lote_venda_animais')
+      .select('id, lote_id, animal_id, peso_vivo_kg, desconto_pct, peso_morto_kg, preco_venda_kg, animais(brinco, nome)')
+      .eq('lote_id', loteId).order('created_at')
+    return ((data ?? []) as any[]).map(r => ({
+      id: r.id, lote_id: r.lote_id, animal_id: r.animal_id,
+      brinco: r.animais?.brinco ?? '—', nome: r.animais?.nome ?? null,
+      peso_vivo_kg: r.peso_vivo_kg, desconto_pct: r.desconto_pct,
+      peso_morto_kg: r.peso_morto_kg, preco_venda_kg: r.preco_venda_kg,
+    })) as LoteVendaAnimal[]
+  }
+
+  async function loadVendaAnimais(loteId: string): Promise<LoteVendaAnimal[]> {
+    const list = await loadVendaAnimaisInner(loteId)
+    setVendaAnimais(list)
+    return list
+  }
+
+  async function syncVendaFinanceiro(lote: Lote, vAnimais: LoteVendaAnimal[]) {
+    if (!lote.fazenda_id) return
+    const addDays = (date: string | null, days: number | null): string | null => {
+      if (!date || days == null) return null
+      const d = new Date(date); d.setDate(d.getDate() + days)
+      return d.toISOString().split('T')[0]
+    }
+    const totVenda = r2(vAnimais.reduce((s, a) => s + (computeAnimalVenda(a).venda ?? 0), 0))
+    const vencVenda = addDays(lote.data_venda, lote.prazo_recebimento_dias)
+
+    const upsertFin = async (categoria: string, payload: Record<string, unknown>) => {
+      const { data: ex } = await supabase.from('financeiro')
+        .select('id').eq('lote_id', lote.id).eq('categoria', categoria).maybeSingle()
+      if (ex) {
+        await supabase.from('financeiro').update(payload).eq('id', ex.id)
+      } else {
+        await supabase.from('financeiro').insert({ ...payload, fazenda_id: lote.fazenda_id, lote_id: lote.id, categoria })
+      }
+    }
+    const deleteFin = async (categoria: string) => {
+      await supabase.from('financeiro').delete().eq('lote_id', lote.id).eq('categoria', categoria)
+    }
+
+    if (totVenda > 0) {
+      await upsertFin(CAT_VENDA_REBANHO, {
+        tipo: 'entrada', valor: totVenda,
+        data: lote.data_venda ?? hoje(),
+        descricao: lote.comprador ? `Venda — ${lote.comprador}` : CAT_VENDA_REBANHO,
+        status: lote.recebido ? 'recebido' : 'pendente',
+        data_vencimento: vencVenda,
+      })
+    } else {
+      await deleteFin(CAT_VENDA_REBANHO)
+    }
+    await reloadLancamentos(lote.id)
+  }
+
+  function openVendaHeaderEdit() {
+    if (!selected) return
+    setVendaHeaderForm({
+      data_venda: selected.data_venda ?? '',
+      comprador: selected.comprador ?? '',
+      prazo_recebimento_dias: selected.prazo_recebimento_dias != null ? String(selected.prazo_recebimento_dias) : '',
+    })
+    setEditingVendaHeader(true)
+  }
+
+  async function salvarVendaHeader() {
+    if (!selected) return
+    setSavingVendaHeader(true)
+    const payload = {
+      data_venda: vendaHeaderForm.data_venda || null,
+      comprador: vendaHeaderForm.comprador.trim() || null,
+      prazo_recebimento_dias: vendaHeaderForm.prazo_recebimento_dias ? parseInt(vendaHeaderForm.prazo_recebimento_dias) : null,
+    }
+    const { error } = await supabase.from('lotes').update(payload).eq('id', selected.id)
+    if (!error) {
+      const updatedLote = { ...selected, ...payload }
+      setSelected(updatedLote)
+      setEditingVendaHeader(false)
+      load()
+      await syncVendaFinanceiro(updatedLote, vendaAnimais)
+    } else {
+      alert(`Erro: ${error.message}`)
+    }
+    setSavingVendaHeader(false)
+  }
+
+  function openNewVendaAnimal() {
+    setEditingVendaAnimalId(null)
+    setVendaAnimalForm({ ...EMPTY_VENDA_ANIMAL })
+    setOpenVendaAnimal(true)
+  }
+
+  function openEditVendaAnimal(a: LoteVendaAnimal) {
+    setEditingVendaAnimalId(a.id)
+    setVendaAnimalForm({
+      animal_id: a.animal_id,
+      peso_vivo_kg: a.peso_vivo_kg != null ? String(a.peso_vivo_kg) : '',
+      desconto_pct: a.desconto_pct != null ? String(a.desconto_pct) : '',
+      peso_morto_kg: a.peso_morto_kg != null ? String(a.peso_morto_kg) : '',
+      preco_venda_kg: a.preco_venda_kg != null ? String(a.preco_venda_kg) : '',
+    })
+    setOpenVendaAnimal(true)
+  }
+
+  async function salvarVendaAnimal() {
+    if (!selected || !vendaAnimalForm.animal_id) { alert('Selecione um animal.'); return }
+    setSavingVendaAnimal(true)
+    const row = {
+      lote_id: selected.id,
+      animal_id: vendaAnimalForm.animal_id,
+      peso_vivo_kg: vendaAnimalForm.peso_vivo_kg ? parseFloat(vendaAnimalForm.peso_vivo_kg) : null,
+      desconto_pct: vendaAnimalForm.desconto_pct ? parseFloat(vendaAnimalForm.desconto_pct) : null,
+      peso_morto_kg: vendaAnimalForm.peso_morto_kg ? parseFloat(vendaAnimalForm.peso_morto_kg) : null,
+      preco_venda_kg: vendaAnimalForm.preco_venda_kg ? parseFloat(vendaAnimalForm.preco_venda_kg) : null,
+    }
+    let error
+    if (editingVendaAnimalId) {
+      ;({ error } = await supabase.from('lote_venda_animais').update(row).eq('id', editingVendaAnimalId))
+    } else {
+      ;({ error } = await supabase.from('lote_venda_animais').insert(row))
+    }
+    if (error) { alert(`Erro: ${error.message}`); setSavingVendaAnimal(false); return }
+    setOpenVendaAnimal(false)
+    setVendaAnimalForm({ ...EMPTY_VENDA_ANIMAL })
+    setEditingVendaAnimalId(null)
+    const freshVenda = await loadVendaAnimais(selected.id)
+    await syncVendaFinanceiro(selected, freshVenda)
+    setSavingVendaAnimal(false)
+  }
+
+  async function excluirVendaAnimal(id: string) {
+    if (!confirm('Excluir este animal do romaneio?')) return
+    await supabase.from('lote_venda_animais').delete().eq('id', id)
+    const freshVenda = await loadVendaAnimais(selected!.id)
+    await syncVendaFinanceiro(selected!, freshVenda)
+  }
+
+  async function concluirVenda() {
+    if (!selected || vendaAnimais.length === 0) return
+    if (!confirm(`Confirmar venda de ${vendaAnimais.length} animal(is)?\n\nEles serão marcados como "vendidos" no rebanho e deixarão de contar nos indicadores.`)) return
+    setConcludingVenda(true)
+    const ids = vendaAnimais.map(a => a.animal_id)
+    await supabase.from('animais').update({ status: 'vendido' } as any).in('id', ids)
+    await refreshAnimais(selected.id)
+    load()
+    setConcludingVenda(false)
+  }
+
+  function gerarRelatorioVenda() {
+    if (!selected || vendaAnimais.length === 0) return
+    const lote = selected
+    const prazo = lote.prazo_recebimento_dias
+    const dataVenc = lote.data_venda && prazo != null ? (() => {
+      const d = new Date(lote.data_venda!)
+      d.setDate(d.getDate() + prazo)
+      return d.toISOString().split('T')[0]
+    })() : null
+
+    const fmtN = (v: number | null) =>
+      v != null ? v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'
+    const fmtC = (v: number | null) =>
+      v != null ? 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '—'
+
+    const rows = vendaAnimais.map(a => {
+      const calc = computeAnimalVenda(a)
+      return {
+        brinco: a.brinco,
+        pesoVivo: a.peso_vivo_kg,
+        desconto: a.desconto_pct ?? 0,
+        pesoDesc: a.peso_morto_kg != null ? a.peso_morto_kg : calc.pesoDesc,
+        pesoMorto: a.peso_morto_kg,
+        precoKg: a.preco_venda_kg ?? 0,
+        valor: calc.venda,
+      }
+    })
+
+    const totalAnimais = rows.length
+    const totalPesoVivo = rows.reduce((s, r) => s + (r.pesoVivo ?? 0), 0)
+    const totalPesoDesc = rows.reduce((s, r) => s + (r.pesoDesc ?? 0), 0)
+    const totalValor = rows.reduce((s, r) => s + (r.valor ?? 0), 0)
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Romaneio — ${lote.nome}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 12px; color: #111; margin: 20mm 15mm; }
+  h1 { font-size: 17px; margin: 0 0 3px; }
+  .sub { color: #555; font-size: 11px; margin-bottom: 18px; }
+  .info { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; margin-bottom: 20px; }
+  .lbl { color: #666; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th { background: #f2f2f2; text-align: left; padding: 5px 7px; border-bottom: 1px solid #bbb; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; }
+  td { padding: 5px 7px; border-bottom: 1px solid #eee; }
+  .r { text-align: right; }
+  .tot td { font-weight: bold; border-top: 2px solid #333; border-bottom: none; background: #f8f8f8; }
+  .footer { margin-top: 14px; font-size: 11px; color: #444; line-height: 1.6; }
+  @media print { body { margin: 0; padding: 12mm 14mm; } }
+</style>
+</head>
+<body>
+<h1>${lote.nome}</h1>
+<div class="sub">Romaneio de Venda</div>
+<div class="info">
+  <span class="lbl">Data da venda:</span><span>${fmtDate(lote.data_venda)}</span>
+  <span class="lbl">Comprador:</span><span>${lote.comprador || '—'}</span>
+</div>
+<table>
+  <thead>
+    <tr>
+      <th>Brinco</th>
+      <th class="r">Peso vivo (kg)</th>
+      <th class="r">Desc. (%)</th>
+      <th class="r">Peso c/ desc. (kg)</th>
+      <th class="r">Peso morto (kg)</th>
+      <th class="r">R$/kg</th>
+      <th class="r">Valor (R$)</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${rows.map(r => `<tr>
+      <td>${r.brinco}</td>
+      <td class="r">${r.pesoVivo != null ? r.pesoVivo.toLocaleString('pt-BR') : '—'}</td>
+      <td class="r">${r.desconto ? r.desconto + '%' : '—'}</td>
+      <td class="r">${fmtN(r.pesoDesc)}</td>
+      <td class="r">${r.pesoMorto != null ? fmtN(r.pesoMorto) : '—'}</td>
+      <td class="r">${fmtN(r.precoKg)}</td>
+      <td class="r">${fmtC(r.valor)}</td>
+    </tr>`).join('')}
+    <tr class="tot">
+      <td>Total (${totalAnimais} cab.)</td>
+      <td class="r">${fmtN(totalPesoVivo)}</td>
+      <td></td>
+      <td class="r">${fmtN(totalPesoDesc)}</td>
+      <td></td>
+      <td></td>
+      <td class="r">${fmtC(totalValor)}</td>
+    </tr>
+  </tbody>
+</table>
+<div class="footer">
+  ${prazo != null ? `Prazo de recebimento: ${prazo} dias${dataVenc ? ' — vencimento: ' + fmtDate(dataVenc) : ''}` : ''}
+</div>
+</body>
+</html>`
+
+    const w = window.open('', '_blank')
+    if (w) { w.document.write(html); w.document.close() }
   }
 
   async function excluirLote() {
@@ -909,6 +1206,11 @@ export default function LotesPage() {
     const totVenda = animaisCom.reduce((s, a) => s + (computeAnimalCom(a, selected).venda ?? 0), 0)
     const totDespesas = despesas.reduce((s, d) => s + Number(d.valor), 0)
     const totLucro = r2(totVenda - totCusto - totDespesas)
+    const totVendaRebanho = r2(vendaAnimais.reduce((s, a) => s + (computeAnimalVenda(a).venda ?? 0), 0))
+    const totPesoVendaRebanho = r2(vendaAnimais.reduce((s, a) => {
+      const calc = computeAnimalVenda(a)
+      return s + (a.peso_morto_kg ?? calc.pesoDesc ?? 0)
+    }, 0))
 
     const isCom = selected.tipo === 'comercial'
 
@@ -1003,6 +1305,14 @@ export default function LotesPage() {
                         {custoPorCabeca != null ? fmt(custoPorCabeca) : '—'}
                       </span>
                     </div>
+                    {vendaAnimais.length > 0 && (
+                      <div className="flex justify-between items-baseline gap-3">
+                        <span className="text-sm text-gray-500 shrink-0">Romaneio venda</span>
+                        <span className="text-sm font-semibold text-green-700">
+                          {vendaAnimais.length} cab. · {fmt(totVendaRebanho)}
+                        </span>
+                      </div>
+                    )}
                   </>
                 )}
                 {selected.descricao && (
@@ -1342,6 +1652,196 @@ export default function LotesPage() {
               </div>
             )}
 
+            {/* ── ROMANEIO DE VENDA (lotes de rebanho) ── */}
+            {!isCom && (
+              <>
+                {/* Cabeçalho da venda */}
+                <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Venda</p>
+                    {!editingVendaHeader && (
+                      <button onClick={openVendaHeaderEdit} className="p-1.5 text-gray-300 hover:text-gray-600 transition-colors">
+                        <Pencil size={14} />
+                      </button>
+                    )}
+                  </div>
+                  {!editingVendaHeader ? (
+                    <div className="space-y-2">
+                      {([
+                        ['Data venda', fmtDate(selected.data_venda)],
+                        ['Comprador', selected.comprador || '—'],
+                        ['Prazo recebimento', selected.prazo_recebimento_dias != null ? `${selected.prazo_recebimento_dias} dias` : '—'],
+                      ] as [string, string][]).map(([label, value]) => (
+                        <div key={label} className="flex justify-between items-baseline gap-3">
+                          <span className="text-sm text-gray-500 shrink-0">{label}</span>
+                          <span className="text-sm font-medium text-gray-900 text-right">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Data venda</label>
+                          <Input type="date" value={vendaHeaderForm.data_venda}
+                            onChange={e => setVendaHeaderForm(p => ({ ...p, data_venda: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Prazo receb. (dias)</label>
+                          <Input placeholder="30" inputMode="numeric" value={vendaHeaderForm.prazo_recebimento_dias}
+                            onChange={e => setVendaHeaderForm(p => ({ ...p, prazo_recebimento_dias: e.target.value }))} />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 block mb-1">Comprador</label>
+                        <Input placeholder="Nome do comprador" value={vendaHeaderForm.comprador}
+                          onChange={e => setVendaHeaderForm(p => ({ ...p, comprador: e.target.value }))} />
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <Button variant="outline" className="flex-1" onClick={() => setEditingVendaHeader(false)}>Cancelar</Button>
+                        <Button className="flex-1 bg-green-700 hover:bg-green-800" onClick={salvarVendaHeader} disabled={savingVendaHeader}>
+                          {savingVendaHeader ? 'Salvando...' : 'Salvar'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Animais do romaneio */}
+                <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+                      Romaneio {vendaAnimais.length > 0 ? `(${vendaAnimais.length})` : ''}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {vendaAnimais.length > 0 && (
+                        <button
+                          onClick={gerarRelatorioVenda}
+                          className="flex items-center gap-1 text-xs font-semibold text-gray-500 border border-gray-200 rounded-lg px-2.5 py-1.5 hover:bg-gray-50 transition-colors"
+                        >
+                          <FileText size={12} /> PDF
+                        </button>
+                      )}
+                      {animais.length > 0 && (
+                        <button
+                          onClick={openNewVendaAnimal}
+                          className="flex items-center gap-1 text-xs font-semibold text-green-700 border border-green-200 rounded-lg px-2.5 py-1.5 hover:bg-green-50 transition-colors"
+                        >
+                          <Plus size={12} /> Animal
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {vendaAnimais.length === 0 && (
+                    <p className="text-sm text-gray-400">Nenhum animal no romaneio.</p>
+                  )}
+                  {vendaAnimais.map((a, i) => {
+                    const calc = computeAnimalVenda(a)
+                    const basePeso = a.peso_morto_kg ?? calc.pesoDesc
+                    return (
+                      <div key={a.id} className={`flex items-center gap-2 py-2.5 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900">{a.brinco}</p>
+                          <p className="text-xs text-gray-400">
+                            {a.peso_vivo_kg != null ? `${a.peso_vivo_kg} kg vivo` : ''}
+                            {a.desconto_pct ? ` · ${a.desconto_pct}% desc` : ''}
+                            {basePeso != null ? ` · ${basePeso} kg base` : ''}
+                            {a.peso_morto_kg != null ? ' (grampo)' : ''}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {calc.venda != null && (
+                            <p className="text-sm font-semibold text-green-700">{fmt(calc.venda)}</p>
+                          )}
+                          {a.preco_venda_kg != null && (
+                            <p className="text-xs text-gray-400">R$ {a.preco_venda_kg}/kg</p>
+                          )}
+                        </div>
+                        <button onClick={() => openEditVendaAnimal(a)}
+                          className="p-1.5 text-gray-300 hover:text-blue-500 transition-colors shrink-0">
+                          <Pencil size={13} />
+                        </button>
+                        <button onClick={() => excluirVendaAnimal(a.id)}
+                          className="p-1.5 text-gray-300 hover:text-red-400 transition-colors shrink-0">
+                          <X size={13} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                  {/* Totais do romaneio */}
+                  {vendaAnimais.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Qtd</span>
+                        <span className="font-semibold text-gray-900">{vendaAnimais.length} cab.</span>
+                      </div>
+                      {totPesoVendaRebanho > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-500">Peso total</span>
+                          <span className="font-semibold text-gray-900">{totPesoVendaRebanho.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} kg</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm">
+                        <span className="font-semibold text-gray-700">Valor total</span>
+                        <span className="font-bold text-green-700">{fmt(totVendaRebanho)}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Concluir venda + Status recebimento */}
+                {vendaAnimais.length > 0 && (
+                  <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
+                    <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Status financeiro</p>
+                    <div className="flex flex-col gap-3">
+                      {/* Botão concluir venda */}
+                      {animais.some(a => vendaAnimais.some(v => v.animal_id === a.id)) && (
+                        <button
+                          onClick={concluirVenda}
+                          disabled={concludingVenda}
+                          className="flex items-center justify-between px-4 py-3 rounded-xl border border-orange-200 bg-orange-50 hover:bg-orange-100 transition-colors"
+                        >
+                          <div className="text-left">
+                            <p className="text-sm font-semibold text-orange-700">
+                              {concludingVenda ? 'Processando...' : 'Concluir venda'}
+                            </p>
+                            <p className="text-xs text-orange-500">Marca os animais como vendidos no rebanho</p>
+                          </div>
+                          <span className="text-orange-400 text-lg leading-none">→</span>
+                        </button>
+                      )}
+                      {/* Toggle recebido */}
+                      <button
+                        onClick={toggleRecebido}
+                        className={`flex items-center justify-between px-4 py-3 rounded-xl border transition-colors ${
+                          selected.recebido ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'
+                        }`}
+                      >
+                        <div className="text-left">
+                          <p className={`text-sm font-semibold ${selected.recebido ? 'text-green-700' : 'text-gray-600'}`}>
+                            {selected.recebido ? 'Recebido' : 'Pendente recebimento'}
+                          </p>
+                          {selected.data_recebido_efetivo && (
+                            <p className="text-xs text-gray-400">em {fmtDate(selected.data_recebido_efetivo)}</p>
+                          )}
+                          {!selected.recebido && selected.prazo_recebimento_dias != null && selected.data_venda && (() => {
+                            const d = new Date(selected.data_venda)
+                            d.setDate(d.getDate() + selected.prazo_recebimento_dias)
+                            return <p className="text-xs text-gray-400">vence {fmtDate(d.toISOString().split('T')[0])}</p>
+                          })()}
+                        </div>
+                        <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                          selected.recebido ? 'bg-green-600 border-green-600' : 'border-gray-300'
+                        }`}>
+                          {selected.recebido && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
             {/* Histórico financeiro */}
             <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-3">
               <div className="flex items-center justify-between mb-3">
@@ -1376,6 +1876,93 @@ export default function LotesPage() {
             </div>
           </>
         )}
+
+        {/* Dialog: Animal do romaneio de venda */}
+        <Dialog open={openVendaAnimal} onOpenChange={setOpenVendaAnimal}>
+          <DialogContent className="max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{editingVendaAnimalId ? 'Editar animal — romaneio' : 'Adicionar ao romaneio'}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 pt-2">
+              {!editingVendaAnimalId && (
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Animal (brinco)</label>
+                  <div className="border border-gray-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+                    {animais.filter(a => !vendaAnimais.some(v => v.animal_id === a.id)).length === 0 && (
+                      <p className="text-xs text-gray-400 text-center py-4">Todos os animais já estão no romaneio.</p>
+                    )}
+                    {animais.filter(a => !vendaAnimais.some(v => v.animal_id === a.id)).map((a, i, arr) => (
+                      <label key={a.id}
+                        className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-gray-50 ${i > 0 ? 'border-t border-gray-100' : ''}`}>
+                        <input type="radio" name="venda_animal" value={a.id}
+                          checked={vendaAnimalForm.animal_id === a.id}
+                          onChange={() => setVendaAnimalForm(p => ({ ...p, animal_id: a.id }))}
+                          className="shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-gray-900">{a.brinco}</p>
+                          <p className="text-xs text-gray-500">{CAT_LABEL[a.categoria] ?? a.categoria}{a.nome ? ` · ${a.nome}` : ''}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {editingVendaAnimalId && (
+                <p className="text-sm font-semibold text-gray-700">
+                  {vendaAnimais.find(v => v.id === editingVendaAnimalId)?.brinco}
+                </p>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Peso vivo (kg)</label>
+                  <Input placeholder="0" inputMode="decimal" value={vendaAnimalForm.peso_vivo_kg}
+                    onChange={e => setVendaAnimalForm(p => ({ ...p, peso_vivo_kg: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Desconto (%)</label>
+                  <Input placeholder="0" inputMode="decimal" value={vendaAnimalForm.desconto_pct}
+                    onChange={e => setVendaAnimalForm(p => ({ ...p, desconto_pct: e.target.value }))} />
+                </div>
+              </div>
+              {/* Preview peso com desconto */}
+              {vendaAnimalForm.peso_vivo_kg && (
+                <p className="text-xs text-gray-400">
+                  Peso c/ desc:{' '}
+                  {r2(parseFloat(vendaAnimalForm.peso_vivo_kg || '0') * (1 - parseFloat(vendaAnimalForm.desconto_pct || '0') / 100)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} kg
+                </p>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Peso morto / grampo (kg)</label>
+                  <Input placeholder="0" inputMode="decimal" value={vendaAnimalForm.peso_morto_kg}
+                    onChange={e => setVendaAnimalForm(p => ({ ...p, peso_morto_kg: e.target.value }))} />
+                  <p className="text-xs text-gray-400 mt-0.5">Se preenchido, usada como base do valor</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">Preço venda (R$/kg)</label>
+                  <Input placeholder="0.00" inputMode="decimal" value={vendaAnimalForm.preco_venda_kg}
+                    onChange={e => setVendaAnimalForm(p => ({ ...p, preco_venda_kg: e.target.value }))} />
+                </div>
+              </div>
+              {/* Preview valor */}
+              {vendaAnimalForm.preco_venda_kg && (vendaAnimalForm.peso_morto_kg || vendaAnimalForm.peso_vivo_kg) && (() => {
+                const desc = parseFloat(vendaAnimalForm.desconto_pct || '0')
+                const pesoVivo = parseFloat(vendaAnimalForm.peso_vivo_kg || '0')
+                const pesoMorto = vendaAnimalForm.peso_morto_kg ? parseFloat(vendaAnimalForm.peso_morto_kg) : null
+                const basePeso = pesoMorto ?? r2(pesoVivo * (1 - desc / 100))
+                const valor = r2(basePeso * parseFloat(vendaAnimalForm.preco_venda_kg))
+                return (
+                  <p className="text-sm font-semibold text-green-700">
+                    Valor: {fmt(valor)}
+                  </p>
+                )
+              })()}
+              <Button className="w-full bg-green-700 hover:bg-green-800" onClick={salvarVendaAnimal} disabled={savingVendaAnimal}>
+                {savingVendaAnimal ? 'Salvando...' : editingVendaAnimalId ? 'Salvar alterações' : 'Adicionar ao romaneio'}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Dialog: Adicionar animais (rebanho) */}
         <Dialog open={openAdd} onOpenChange={setOpenAdd}>
