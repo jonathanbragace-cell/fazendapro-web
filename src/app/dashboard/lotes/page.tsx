@@ -23,6 +23,7 @@ type Lote = {
   custo_total?: number
   peso_medio?: number
   preco_medio?: number
+  lucro?: number
   data_compra: string | null
   fornecedor: string | null
   desconto_pct: number | null
@@ -268,6 +269,7 @@ export default function LotesPage() {
     let counts: Record<string, number> = {}
     const pesoMedioMap: Record<string, number> = {}
     const precoMedioMap: Record<string, number> = {}
+    const lucroMap: Record<string, number> = {}
     if (ids.length > 0) {
       const [{ data: fin }, { data: an }, anComRes, { data: vendaData }] = await Promise.all([
         supabase.from('financeiro').select('lote_id, tipo, valor, animal_id').in('lote_id', ids),
@@ -283,6 +285,12 @@ export default function LotesPage() {
       for (const f of fin ?? []) {
         if (!finByLote[f.lote_id]) finByLote[f.lote_id] = []
         finByLote[f.lote_id].push({ tipo: f.tipo, valor: Number(f.valor), animal_id: f.animal_id ?? null })
+      }
+      // Lucro por lote: entradas − saídas registradas no financeiro
+      for (const [lid, items] of Object.entries(finByLote)) {
+        const ent = items.filter(f => f.tipo === 'entrada').reduce((s, f) => s + f.valor, 0)
+        const sai = items.filter(f => f.tipo === 'saida').reduce((s, f) => s + f.valor, 0)
+        lucroMap[lid] = r2(ent - sai)
       }
       // Group animals by lote
       const anByLote: Record<string, { id: string; valor_compra: number | null }[]> = {}
@@ -345,6 +353,7 @@ export default function LotesPage() {
         descricao: l.descricao, observacao: l.observacao,
         total_animais: counts[l.id] ?? 0, custo_total: custos[l.id] ?? 0,
         peso_medio: pesoMedioMap[l.id] ?? undefined, preco_medio: precoMedioMap[l.id] ?? undefined,
+        lucro: lucroMap[l.id] ?? undefined,
         data_compra: l.data_compra, fornecedor: l.fornecedor,
         desconto_pct: l.desconto_pct, preco_compra_kg: l.preco_compra_kg,
         prazo_pagamento_dias: l.prazo_pagamento_dias,
@@ -2500,6 +2509,11 @@ export default function LotesPage() {
                       {l.peso_medio != null && l.preco_medio != null && (
                         <span className="text-gray-700 font-semibold">
                           {fmt(r2(l.peso_medio * l.preco_medio))}/cab
+                        </span>
+                      )}
+                      {l.lucro != null && (
+                        <span className={`font-bold ${l.lucro >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                          {l.lucro >= 0 ? '+' : ''}{fmt(l.lucro)}
                         </span>
                       )}
                     </>
